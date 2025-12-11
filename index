@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EPD with SNOMED – Practice‑level Explorer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f4f4f7;
+      --panel: #ffffff;
+      --border: #dde1eb;
+      --accent: #005eb8;
+      --accent-soft: rgba(0, 94, 184, 0.08);
+      --text-main: #1f2933;
+      --text-muted: #6b7280;
+      --danger: #b91c1c;
+      --radius: 10px;
+      --shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+      --mono: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background: radial-gradient(circle at top, #e5f0ff 0, #f4f4f7 40%, #f4f4f7 100%);
+      color: var(--text-main);
+    }
+
+    header {
+      background: linear-gradient(135deg, #005eb8, #003f88);
+      color: white;
+      padding: 1.5rem 1rem;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .header-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header-inner h1 {
+      margin: 0;
+      font-size: 1.4rem;
+      letter-spacing: 0.02em;
+    }
+
+    .header-inner p {
+      margin: 0.4rem 0 0;
+      font-size: 0.95rem;
+      opacity: 0.9;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 1.25rem auto 2rem;
+      padding: 0 1rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+      gap: 1.25rem;
+      align-items: flex-start;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .panel {
+      background: var(--panel);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.2rem 1.3rem;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+    }
+
+    .panel h2 {
+      margin-top: 0;
+      font-size: 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .pill span {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      margin: 0 0 0.25rem;
+      font-weight: 500;
+    }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 0.45rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      background: #f9fafb;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+
+    input[type="text"]:focus,
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent-soft);
+      background: white;
+    }
+
+    .form-group {
+      margin-bottom: 0.8rem;
+    }
+
+    .help-text {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+    }
+
+    .inline-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    .inline-checkbox input {
+      margin: 0;
+    }
+
+    button {
+      cursor: pointer;
+      border-radius: 999px;
+      border: none;
+      padding: 0.45rem 1.1rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      font-family: inherit;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: transform 0.1s, box-shadow 0.1s, background 0.1s;
+    }
+
+    button.primary {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 4px 10px rgba(0, 94, 184, 0.25);
+    }
+
+    button.primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 94, 184, 0.35);
+      background: #004c93;
+    }
+
+    button.secondary {
+      background: #eef2ff;
+      color: #111827;
+      border: 1px solid #c7d2fe;
+      box-shadow: none;
+    }
+
+    button.secondary:hover {
+      background: #e0e7ff;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .status {
+      margin-top: 0.7rem;
+      font-size: 0.78rem;
+      padding: 0.4rem 0.55rem;
+      border-radius: 6px;
+      background: #f1f5f9;
+      color: var(--text-muted);
+      border: 1px dashed #cbd5e1;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      min-height: 1.4rem;
+    }
+
+    .status.hidden {
+      display: none;
+    }
+
+    .status.loading::before {
+      content: "";
+      width: 11px;
+      height: 11px;
+      border-radius: 999px;
+      border: 2px solid rgba(148, 163, 184, 0.7);
+      border-top-color: var(--accent);
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+
+    .status.error {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: var(--danger);
+    }
+
+    .status.error::before {
+      content: "!";
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: #fee2e2;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .summary-line {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+    }
+
+    .summary-line strong {
+      color: var(--text-main);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      background: var(--accent-soft);
+      color: #1f2933;
+      margin-right: 0.25rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .chip code {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .results-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .results-header h3 {
+      margin: 0;
+      font-size: 1rem;
+    }
+
+    .results-stats {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .table-wrapper {
+      margin-top: 0.7rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      background: linear-gradient(to bottom, #f9fafb, #ffffff 40%);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      min-width: 420px;
+    }
+
+    thead {
+      background: #f3f4f6;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    th,
+    td {
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th:nth-child(1),
+    th:nth-child(2),
+    th:nth-child(3),
+    td:nth-child(1),
+    td:nth-child(2),
+    td:nth-child(3) {
+      text-align: left;
+    }
+
+    th {
+      font-weight: 600;
+      color: #4b5563;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #f9fafb;
+    }
+
+    tbody tr:hover {
+      background: #eef2ff;
+    }
+
+    .table-scroll {
+      max-height: 400px;
+      overflow: auto;
+    }
+
+    .note {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+
+    .controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-top: 0.8rem;
+      align-items: flex-end;
+    }
+
+    .controls-row .form-group {
+      flex: 1 1 180px;
+      margin-bottom: 0;
+    }
+
+    select[multiple] {
+      height: 7.5rem;
+      background: #f9fafb;
+    }
+
+    #chartContainer {
+      margin-top: 1.1rem;
+      padding-top: 0.7rem;
+      border-top: 1px dashed #e5e7eb;
+    }
+
+    #chartCanvas {
+      width: 100%;
+      max-height: 380px;
+    }
+
+    footer {
+      max-width: 1200px;
+      margin: 0 auto 1.2rem;
+      padding: 0 1rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    footer a {
+      color: inherit;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>English Prescribing Dataset (EPD) with SNOMED Code – Explorer</h1>
+      <p>
+        Search by BNF presentation name and view prescribing totals by practice and month,
+        directly from the NHSBSA Open Data API.
+      </p>
+    </div>
+  </header>
+
+  <main>
+    <div class="layout">
+      <!-- Sidebar / Controls -->
+      <section class="panel">
+        <h2>
+          Search parameters
+          <span class="pill">
+            Live API
+            <span>EPD</span>
+          </span>
+        </h2>
+
+        <form id="searchForm">
+          <div class="form-group">
+            <label for="searchMode">Search by</label>
+            <select id="searchMode" aria-label="Search mode">
+              <option value="presentation">BNF presentation name</option>
+              <option value="bnf_code">BNF code (BNF_CODE)</option>
+            </select>
+            <div class="help-text">Choose whether you're searching by presentation text or the BNF code.</div>
+          </div>
+
+          <div class="form-group">
+            <label for="drugQuery">Drug name (or BNF code)</label>
+            <input
+              type="text"
+              id="drugQuery"
+              name="drugQuery"
+              required
+              autocomplete="off"
+              value="Lorazepam 250microgram tablets"
+            />
+            <div class="help-text">
+              Full BNF presentation text as in the dataset, e.g.
+              <code style="font-family: var(--mono); font-size: 0.75rem;">Lorazepam 250microgram tablets</code>.
+            </div>
+          </div>
+
+          <div style="display:flex; gap:0.6rem; align-items:center;">
+            <div style="flex:1;">
+              <div class="inline-checkbox" style="margin:0;">
+                <input type="checkbox" id="exactMatch" checked />
+                <label for="exactMatch" style="margin: 0; font-weight: 400;">Exact match</label>
+              </div>
+            </div>
+            <div>
+              <button type="button" class="secondary" id="lookupBnfButton" title="Find matching BNF codes/presentations">🔎 Lookup BNF codes</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Month range</label>
+            <div style="display:flex; gap:0.4rem;">
+              <div style="flex:1;">
+                <select id="startMonth"></select>
+                <div class="help-text">Start</div>
+              </div>
+              <div style="flex:1;">
+                <select id="endMonth"></select>
+                <div class="help-text">End</div>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="primary" id="runButton">
+            <span>Run query</span>
+          </button>
+
+          <div id="status" class="status loading">
+            Initialising months from NHSBSA Open Data…
+          </div>
+        </form>
+      </section>
+
+      <!-- Main content -->
+      <section class="panel">
+        <div id="summaryArea">
+          <p class="summary-line">
+            Choose a drug, pick a month range, and click <strong>Run query</strong>.
+          </p>
+          <p class="summary-line">
+            This page queries <code style="font-family:var(--mono);">english-prescribing-dataset-epd-with-snomed-code</code>
+            via the CKAN Data API (<code style="font-family:var(--mono);">datastore_search</code>) in your browser.
+          </p>
+        </div>
+
+        <div id="presentationChoice" class="hidden" style="margin-top: 0.6rem;">
+          <div class="form-group">
+            <label for="presentationSelect">BNF presentation / code (multiple matches found)</label>
+            <select id="presentationSelect"></select>
+            <div class="help-text">
+              If multiple matches are found when you lookup BNF codes, pick one to focus on.
+            </div>
+          </div>
+        </div>
+
+        <div id="resultsArea" class="hidden">
+          <div class="results-header">
+            <h3 id="resultsTitle">Results</h3>
+            <div class="results-stats" id="resultsStats"></div>
+          </div>
+
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+            <button type="button" class="secondary" id="downloadCsvButton">
+              ⬇️ Download practice × month CSV
+            </button>
+          </div>
+
+          <div id="tableContainer" class="table-wrapper">
+            <div class="table-scroll">
+              <table id="resultsTable"></table>
+            </div>
+            <div class="note" id="tableNote"></div>
+          </div>
+
+          <div id="chartContainer" class="hidden">
+            <div class="controls-row">
+              <div class="form-group">
+                <label for="metricSelect">Metric to chart</label>
+                <select id="metricSelect"></select>
+              </div>
+              <div class="form-group">
+                <label for="practicesSelect">Practices (hold Ctrl/Cmd for multi‑select)</label>
+                <select id="practicesSelect" multiple></select>
+                <div class="help-text">
+                  Practices are ordered by total items for the selected drug.
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:0.7rem;">
+              <canvas id="chartCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    This tool queries the NHS Business Services Authority
+    <em>English Prescribing Dataset (EPD) with SNOMED Code</em> via the public CKAN Data API.
+    Data © NHSBSA, licensed under the Open Government Licence.  [oai_citation:2‡opendata.nhsbsa.net](https://opendata.nhsbsa.net/dataset/english-prescribing-dataset-epd-with-snomed-code)
+  </footer>
+
+  <!-- Chart.js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <script>
+    const API_BASE = "https://opendata.nhsbsa.net/api/3/action";
+    const DATASET_ID = "english-prescribing-dataset-epd-with-snomed-code";
+
+    // Safer defaults to avoid server-side 500s on huge pages
+    const PAGE_SIZE = 100;
+    const MAX_PAGES_PER_MONTH = 2000; // safety cap
+    const MAX_DISPLAY_ROWS = 500;
+    const PRACTICE_SELECT_LIMIT = 60;
+
+    // Field name fixed to actual API name
+    const METRIC_COLUMNS = ["ITEMS", "TOTAL_QUANTITY", "NIC", "ACTUAL_COST", "ADQUSAGE"];
+
+    let monthsIndex = [];      // [{ yearMonth: '2025-09', resourceId: 'EPD_SNOMED_202509' }, ...]
+    let rawRecords = [];       // all raw rows fetched for current query
+    let aggregated = [];       // practice-month aggregates
+    let chartInstance = null;  // Chart.js instance
+
+    function $(id) { return document.getElementById(id); }
+
+    function setStatus(message, { loading = false, error = false } = {}) {
+      const el = $("status");
+      if (!el) return;
+      el.textContent = message || "";
+      el.classList.remove("hidden", "loading", "error");
+      if (loading) el.classList.add("loading");
+      if (error) el.classList.add("error");
+      if (!loading && !error && !message) el.classList.add("hidden");
+    }
+
+    function setFormEnabled(enabled) {
+      $("drugQuery").disabled = !enabled;
+      $("exactMatch").disabled = !enabled;
+      $("startMonth").disabled = !enabled;
+      $("endMonth").disabled = !enabled;
+      $("runButton").disabled = !enabled;
+      $("lookupBnfButton").disabled = !enabled;
+      $("searchMode").disabled = !enabled;
+    }
+
+    function csvEscape(value) {
+      if (value === null || value === undefined) return "";
+      const s = String(value);
+      if (/[",\n]/.test(s)) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    function downloadCsv() {
+      if (!aggregated.length) {
+        alert("No aggregated data available yet.");
+        return;
+      }
+      const cols = Object.keys(aggregated[0]);
+      const lines = [cols.join(",")];
+      aggregated.forEach(row => {
+        const line = cols.map(c => csvEscape(row[c])).join(",");
+        lines.push(line);
+      });
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "epd_practice_by_month.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // --- API helpers ------------------------------------------------------
+
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      const text = await res.text();
+      if (!res.ok) {
+        // include server response text to help diagnose 500s
+        throw new Error(`HTTP ${res.status} – ${res.statusText}: ${text}`);
+      }
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${text}`);
+      }
+    }
+
+    async function initMonths() {
+      try {
+        const url = `${API_BASE}/package_show?id=${encodeURIComponent(DATASET_ID)}`;
+        const data = await fetchJson(url);
+        const resources = (data.result && data.result.resources) || [];
+
+        const months = [];
+        resources.forEach(r => {
+          const name = r.name || "";
+          if (!name.startsWith("EPD_SNOMED_")) return;
+          const yyyymm = name.split("_").pop();
+          if (!/^\d{6}$/.test(yyyymm)) return;
+          const year = yyyymm.slice(0, 4);
+          const month = yyyymm.slice(4, 6);
+          const yearMonth = `${year}-${month}`;
+          months.push({ yearMonth, resourceId: name });
+        });
+
+        months.sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+        monthsIndex = months;
+
+        if (!monthsIndex.length) {
+          setStatus("No monthly resources found in dataset metadata.", { error: true });
+          setFormEnabled(false);
+          return;
+        }
+
+        const startSel = $("startMonth");
+        const endSel = $("endMonth");
+        startSel.innerHTML = "";
+        endSel.innerHTML = "";
+
+        monthsIndex.forEach(m => {
+          const opt1 = document.createElement("option");
+          opt1.value = m.yearMonth;
+          opt1.textContent = m.yearMonth;
+          startSel.appendChild(opt1);
+
+          const opt2 = document.createElement("option");
+          opt2.value = m.yearMonth;
+          opt2.textContent = m.yearMonth;
+          endSel.appendChild(opt2);
+        });
+
+        const lastIdx = monthsIndex.length - 1;
+        const firstIdx = Math.max(0, lastIdx - 11);
+        startSel.value = monthsIndex[firstIdx].yearMonth;
+        endSel.value = monthsIndex[lastIdx].yearMonth;
+
+        setStatus("Months loaded. Enter a drug and run the query.");
+        setFormEnabled(true);
+      } catch (err) {
+        setStatus(
+          `Failed to load months from NHSBSA Open Data API: ${err.message}. ` +
+          "If you see a 'Failed to fetch' type error in the browser console, it may be due to network or CORS restrictions.",
+          { error: true }
+        );
+        setFormEnabled(false);
+      }
+    }
+
+    // Robust paginated fetch that advances by the number of records actually returned
+    async function fetchDrugDataForResource(resourceId, queryText, exactMatch, mode) {
+      let offset = 0;
+      let pages = 0;
+      const allRecords = [];
+
+      while (pages < MAX_PAGES_PER_MONTH) {
+        const params = new URLSearchParams({
+          resource_id: resourceId,
+          limit: String(PAGE_SIZE),
+          offset: String(offset)
+        });
+
+        // Choose filter param depending on mode
+        if (exactMatch) {
+          if (mode === "bnf_code") {
+            params.set("filters", JSON.stringify({ BNF_CODE: queryText }));
+          } else {
+            params.set("filters", JSON.stringify({ BNF_PRESENTATION_NAME: queryText }));
+          }
+        } else {
+          // q must be a plain string for full-text search
+          params.set("q", queryText);
+        }
+
+        const url = `${API_BASE}/datastore_search?${params.toString()}`;
+
+        try {
+          const data = await fetchJson(url);
+          const result = data.result || {};
+          const records = result.records || [];
+          const total = result.total || 0;
+
+          if (records.length === 0) break;
+
+          allRecords.push(...records);
+
+          // advance offset by number of records actually returned (server may cap limit)
+          offset += records.length;
+          pages += 1;
+
+          if (offset >= total) break;
+        } catch (err) {
+          console.warn(`Request failed for ${resourceId} offset=${offset} limit=${PAGE_SIZE}:`, err.message);
+
+          // attempt a single retry with smaller limit
+          if (PAGE_SIZE > 50) {
+            const retryParams = new URLSearchParams({
+              resource_id: resourceId,
+              limit: "50",
+              offset: String(offset)
+            });
+            if (exactMatch) {
+              if (mode === "bnf_code") {
+                retryParams.set("filters", JSON.stringify({ BNF_CODE: queryText }));
+              } else {
+                retryParams.set("filters", JSON.stringify({ BNF_PRESENTATION_NAME: queryText }));
+              }
+            } else {
+              retryParams.set("q", queryText);
+            }
+            const retryUrl = `${API_BASE}/datastore_search?${retryParams.toString()}`;
+            try {
+              const data2 = await fetchJson(retryUrl);
+              const result2 = data2.result || {};
+              const recs2 = result2.records || [];
+              if (recs2.length === 0) break;
+              allRecords.push(...recs2);
+              offset += recs2.length;
+              pages += 1;
+              const total2 = result2.total || 0;
+              if (offset >= total2) break;
+              continue;
+            } catch (err2) {
+              console.error("Retry also failed:", err2.message);
+              throw new Error(`Failed while querying the Open Data API: ${err2.message}`);
+            }
+          } else {
+            throw new Error(`Failed while querying the Open Data API: ${err.message}`);
+          }
+        }
+      }
+
+      return allRecords;
+    }
+
+    // --- Aggregation & display --------------------------------------------
+
+    function normalizeYearMonth(ymVal) {
+      if (typeof ymVal === "number") {
+        const s = String(ymVal);
+        if (s.length === 6) return `${s.slice(0, 4)}-${s.slice(4, 6)}`;
+        return String(ymVal);
+      } else if (typeof ymVal === "string" && /^\d{6}$/.test(ymVal)) {
+        return `${ymVal.slice(0, 4)}-${ymVal.slice(4, 6)}`;
+      }
+      return String(ymVal);
+    }
+
+    function aggregateByPracticeMonth(records) {
+      const map = new Map();
+
+      records.forEach(rec => {
+        const ym = normalizeYearMonth(rec.YEAR_MONTH);
+        const pcode = rec.PRACTICE_CODE || "";
+        const pname = rec.PRACTICE_NAME || "";
+        if (!ym || !pcode) return;
+
+        const key = `${ym}||${pcode}`;
+        let agg = map.get(key);
+        if (!agg) {
+          agg = {
+            YEAR_MONTH: ym,
+            PRACTICE_CODE: pcode,
+            PRACTICE_NAME: pname
+          };
+          METRIC_COLUMNS.forEach(col => (agg[col] = 0));
+          map.set(key, agg);
+        }
+
+        METRIC_COLUMNS.forEach(col => {
+          const val = rec[col];
+          if (val !== null && val !== undefined && val !== "") {
+            const num = Number(val);
+            if (!Number.isNaN(num)) {
+              agg[col] += num;
+            }
+          }
+        });
+      });
+
+      const arr = Array.from(map.values());
+      arr.sort((a, b) => {
+        if (a.YEAR_MONTH !== b.YEAR_MONTH) {
+          return a.YEAR_MONTH.localeCompare(b.YEAR_MONTH);
+        }
+        return (a.PRACTICE_NAME || "").localeCompare(b.PRACTICE_NAME || "");
+      });
+      return arr;
+    }
+
+    function renderTable(data) {
+      const table = $("resultsTable");
+      const note = $("tableNote");
+      table.innerHTML = "";
+      note.textContent = "";
+
+      if (!data.length) {
+        table.innerHTML = "<tbody><tr><td>No data to display.</td></tr></tbody>";
+        return;
+      }
+
+      const first = data[0];
+      const metricsAvailable = METRIC_COLUMNS.filter(col => col in first);
+      const columns = ["YEAR_MONTH", "PRACTICE_CODE", "PRACTICE_NAME", ...metricsAvailable];
+
+      const thead = document.createElement("thead");
+      const trHead = document.createElement("tr");
+      columns.forEach(col => {
+        const th = document.createElement("th");
+        th.textContent = col;
+        trHead.appendChild(th);
+      });
+      thead.appendChild(trHead);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      const rowsToShow = data.slice(0, MAX_DISPLAY_ROWS);
+      rowsToShow.forEach(row => {
+        const tr = document.createElement("tr");
+        columns.forEach(col => {
+          const td = document.createElement("td");
+          let value = row[col];
+
+          if (metricsAvailable.includes(col)) {
+            const num = Number(value);
+            if (!Number.isNaN(num)) {
+              // 2dp for money & ADQUSAGE, 0dp for counts
+              const dp = ["NIC", "ACTUAL_COST", "ADQUSAGE"].includes(col) ? 2 : 0;
+              value = num.toLocaleString("en-GB", {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: dp
+              });
+            }
+          }
+
+          td.textContent = value === undefined || value === null ? "" : value;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+
+      if (data.length > MAX_DISPLAY_ROWS) {
+        note.textContent = `Showing the first ${MAX_DISPLAY_ROWS.toLocaleString(
+          "en-GB"
+        )} rows out of ${data.length.toLocaleString("en-GB")}. Use the CSV download for the full table.`;
+      } else {
+        note.textContent = `${data.length.toLocaleString("en-GB")} practice‑month rows.`;
+      }
+    }
+
+    function buildPracticeOptions() {
+      const metricCol = "ITEMS";
+      const practiceTotals = new Map();
+
+      aggregated.forEach(row => {
+        const name = row.PRACTICE_NAME || row.PRACTICE_CODE;
+        if (!name) return;
+        const current = practiceTotals.get(name) || 0;
+        const add = Number(row[metricCol]) || 0;
+        practiceTotals.set(name, current + add);
+      });
+
+      const sorted = Array.from(practiceTotals.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, PRACTICE_SELECT_LIMIT);
+
+      const select = $("practicesSelect");
+      select.innerHTML = "";
+      sorted.forEach(([name]) => {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      });
+
+      // Preselect up to 6 practices
+      Array.from(select.options)
+        .slice(0, 6)
+        .forEach(opt => (opt.selected = true));
+    }
+
+    function buildMetricOptions() {
+      if (!aggregated.length) return;
+      const first = aggregated[0];
+      const available = METRIC_COLUMNS.filter(c => c in first);
+      const sel = $("metricSelect");
+      sel.innerHTML = "";
+      available.forEach(col => {
+        const opt = document.createElement("option");
+        opt.value = col;
+        opt.textContent = col;
+        sel.appendChild(opt);
+      });
+    }
+
+    function updateChart() {
+      if (!aggregated.length) return;
+
+      const metric = $("metricSelect").value;
+      const practiceSelect = $("practicesSelect");
+      const selectedPractices = Array.from(practiceSelect.selectedOptions).map(
+        o => o.value
+      );
+
+      if (!metric || !selectedPractices.length) {
+        if (chartInstance) {
+          chartInstance.destroy();
+          chartInstance = null;
+        }
+        return;
+      }
+
+      const months = Array.from(
+        new Set(aggregated.map(row => row.YEAR_MONTH))
+      ).sort();
+
+      const datasets = selectedPractices.map(name => {
+        const values = months.map(m => {
+          const row = aggregated.find(
+            r => r.YEAR_MONTH === m && (r.PRACTICE_NAME === name || r.PRACTICE_CODE === name)
+          );
+          const v = row ? Number(row[metric]) || 0 : 0;
+          return v;
+        });
+        return {
+          label: name,
+          data: values,
+          tension: 0.2,
+          pointRadius: 2,
+          borderWidth: 2
+        };
+      });
+
+      const ctx = $("chartCanvas").getContext("2d");
+      if (chartInstance) {
+        chartInstance.destroy();
+        }
+
+      chartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: months,
+          datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: "index",
+            intersect: false
+          },
+          plugins: {
+            legend: {
+              position: "bottom"
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  const v = ctx.parsed.y;
+                  return `${ctx.dataset.label}: ${v.toLocaleString("en-GB", {
+                    maximumFractionDigits: 2
+                  })}`;
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+
+    function applyPresentationFilter() {
+      if (!rawRecords.length) return;
+
+      const select = $("presentationSelect");
+      const chosen = select.value;
+      const filtered = chosen
+        ? rawRecords.filter(r => {
+            // allow matching either BNF_PRESENTATION_NAME or BNF_CODE
+            return r.BNF_PRESENTATION_NAME === chosen || r.BNF_CODE === chosen;
+          })
+        : rawRecords.slice();
+
+      aggregated = aggregateByPracticeMonth(filtered);
+      renderTable(aggregated);
+      buildMetricOptions();
+      buildPracticeOptions();
+      $("chartContainer").classList.toggle("hidden", !aggregated.length);
+      updateChart();
+
+      const statsEl = $("resultsStats");
+      statsEl.textContent = `${aggregated.length.toLocaleString(
+        "en-GB"
+      )} practice‑month rows • ${filtered.length.toLocaleString(
+        "en-GB"
+      )} raw rows.`;
+    }
+
+    // --- BNF code lookup -----------------------------------------------
+
+    // Lookup BNF codes and presentation names using the most recent month resource.
+    // Populates the presentationSelect with "BNF_CODE — BNF_PRESENTATION_NAME" options
+    async function lookupBnfCodes() {
+      const q = $("drugQuery").value.trim();
+      if (!q) {
+        alert("Enter some text to look up BNF codes/presentations.");
+        return;
+      }
+      if (!monthsIndex.length) {
+        alert("Month list not loaded yet.");
+        return;
+      }
+
+      setStatus("Looking up matching BNF codes in latest month…", { loading: true });
+      setFormEnabled(false);
+      try {
+        const latest = monthsIndex[monthsIndex.length - 1];
+        const params = new URLSearchParams({
+          resource_id: latest.resourceId,
+          limit: "500",
+          q: q
+        });
+        const url = `${API_BASE}/datastore_search?${params.toString()}`;
+        const data = await fetchJson(url);
+        const recs = (data.result && data.result.records) || [];
+
+        // Extract unique BNF_CODE + presentation pairs
+        const map = new Map();
+        recs.forEach(r => {
+          const code = r.BNF_CODE || "";
+          const pres = r.BNF_PRESENTATION_NAME || r.BNF_DESCRIPTION || "";
+          const key = code || pres;
+          if (!key) return;
+          map.set(key, { code, pres });
+        });
+
+        const select = $("presentationSelect");
+        select.innerHTML = "";
+
+        if (map.size === 0) {
+          setStatus("No matching presentations/codes found in latest month.", { error: true });
+          $("presentationChoice").classList.add("hidden");
+        } else {
+          // Build options showing both code and presentation (if code present)
+          Array.from(map.values()).forEach(item => {
+            const opt = document.createElement("option");
+            // If BNF_CODE available, use it as value so user can search/filter by code
+            opt.value = item.code || item.pres;
+            opt.textContent = item.code ? `${item.code} — ${item.pres}` : item.pres;
+            select.appendChild(opt);
+          });
+          $("presentationChoice").classList.remove("hidden");
+          setStatus(`Found ${map.size} matching presentation(s). Pick one or run the query.`, {});
+        }
+      } catch (err) {
+        setStatus(`Lookup failed: ${err.message}`, { error: true });
+      } finally {
+        setFormEnabled(true);
+      }
+    }
+
+    // --- Main query flow -------------------------------------------------
+
+    async function runQuery(event) {
+      if (event) event.preventDefault();
+      const q = $("drugQuery").value.trim();
+      if (!q) {
+        alert("Enter a drug name or BNF code first.");
+        return;
+      }
+
+      const mode = $("searchMode").value; // presentation | bnf_code
+      const exactMatch = $("exactMatch").checked;
+      const start = $("startMonth").value;
+      const end = $("endMonth").value;
+      if (!start || !end) {
+        alert("Pick a month range.");
+        return;
+      }
+      const startIdx = monthsIndex.findIndex(m => m.yearMonth === start);
+      const endIdx = monthsIndex.findIndex(m => m.yearMonth === end);
+      if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+        alert("Invalid month range.");
+        return;
+      }
+
+      setStatus("Querying the Open Data API…", { loading: true });
+      setFormEnabled(false);
+      rawRecords = [];
+      aggregated = [];
+      $("resultsArea").classList.add("hidden");
+      $("presentationChoice").classList.add("hidden");
+
+      try {
+        // iterate month resources between start and end
+        for (let i = startIdx; i <= endIdx; i++) {
+          const resourceId = monthsIndex[i].resourceId;
+          setStatus(`Querying ${monthsIndex[i].yearMonth}…`, { loading: true });
+          // fetch records for this resource matching the query
+          const rows = await fetchDrugDataForResource(resourceId, q, exactMatch, mode);
+          rawRecords.push(...rows);
+
+          // Early exit if we hit an extremely large raw set to avoid freezing browser
+          if (rawRecords.length > 500000) {
+            throw new Error("Result set too large to load in the browser. Narrow your query or download directly from NHSBSA.");
+          }
+        }
+
+        if (!rawRecords.length) {
+          setStatus("No records found for that query.", {});
+          setFormEnabled(true);
+          return;
+        }
+
+        // If user searched by presentation text and multiple presentations exist, allow choosing one
+        if (mode === "presentation") {
+          const distinctPres = Array.from(new Set(rawRecords.map(r => r.BNF_PRESENTATION_NAME).filter(Boolean)));
+          if (distinctPres.length > 1) {
+            const select = $("presentationSelect");
+            select.innerHTML = "";
+            distinctPres.forEach(p => {
+              const opt = document.createElement("option");
+              opt.value = p;
+              opt.textContent = p;
+              select.appendChild(opt);
+            });
+            $("presentationChoice").classList.remove("hidden");
+            // default to first
+            select.value = distinctPres[0];
+          } else {
+            $("presentationChoice").classList.add("hidden");
+          }
+        } else {
+          $("presentationChoice").classList.add("hidden");
+        }
+
+        // Aggregate and render
+        aggregated = aggregateByPracticeMonth(rawRecords);
+        renderTable(aggregated);
+        buildMetricOptions();
+        buildPracticeOptions();
+        $("chartContainer").classList.toggle("hidden", !aggregated.length);
+        updateChart();
+
+        $("resultsArea").classList.remove("hidden");
+        setStatus("", {});
+      } catch (err) {
+        setStatus(`Error while querying the Open Data API: ${err.message}`, { error: true });
+        console.error(err);
+      } finally {
+        setFormEnabled(true);
+      }
+    }
+
+    // --- Event wiring ----------------------------------------------------
+
+    document.addEventListener("DOMContentLoaded", () => {
+      initMonths();
+
+      $("searchForm").addEventListener("submit", runQuery);
+      $("downloadCsvButton").addEventListener("click", downloadCsv);
+      $("presentationSelect").addEventListener("change", applyPresentationFilter);
+      $("metricSelect").addEventListener("change", updateChart);
+      $("practicesSelect").addEventListener("change", updateChart);
+      $("lookupBnfButton").addEventListener("click", lookupBnfCodes);
+    });
+  </script>
+</body>
+</html>
