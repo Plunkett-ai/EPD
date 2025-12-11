@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EPD with SNOMED – Practice‑level Explorer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f4f4f7;
+      --panel: #ffffff;
+      --border: #dde1eb;
+      --accent: #005eb8;
+      --accent-soft: rgba(0, 94, 184, 0.08);
+      --text-main: #1f2933;
+      --text-muted: #6b7280;
+      --danger: #b91c1c;
+      --radius: 10px;
+      --shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+      --mono: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background: radial-gradient(circle at top, #e5f0ff 0, #f4f4f7 40%, #f4f4f7 100%);
+      color: var(--text-main);
+    }
+
+    header {
+      background: linear-gradient(135deg, #005eb8, #003f88);
+      color: white;
+      padding: 1.5rem 1rem;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .header-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header-inner h1 {
+      margin: 0;
+      font-size: 1.4rem;
+      letter-spacing: 0.02em;
+    }
+
+    .header-inner p {
+      margin: 0.4rem 0 0;
+      font-size: 0.95rem;
+      opacity: 0.9;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 1.25rem auto 2rem;
+      padding: 0 1rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+      gap: 1.25rem;
+      align-items: flex-start;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .panel {
+      background: var(--panel);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1.2rem 1.3rem;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+    }
+
+    .panel h2 {
+      margin-top: 0;
+      font-size: 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .pill span {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      margin: 0 0 0.25rem;
+      font-weight: 500;
+    }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 0.45rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      background: #f9fafb;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+
+    input[type="text"]:focus,
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent-soft);
+      background: white;
+    }
+
+    .form-group {
+      margin-bottom: 0.8rem;
+    }
+
+    .help-text {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+    }
+
+    .inline-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    .inline-checkbox input {
+      margin: 0;
+    }
+
+    button {
+      cursor: pointer;
+      border-radius: 999px;
+      border: none;
+      padding: 0.45rem 1.1rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      font-family: inherit;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: transform 0.1s, box-shadow 0.1s, background 0.1s;
+    }
+
+    button.primary {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 4px 10px rgba(0, 94, 184, 0.25);
+    }
+
+    button.primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 94, 184, 0.35);
+      background: #004c93;
+    }
+
+    button.secondary {
+      background: #eef2ff;
+      color: #111827;
+      border: 1px solid #c7d2fe;
+      box-shadow: none;
+    }
+
+    button.secondary:hover {
+      background: #e0e7ff;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .status {
+      margin-top: 0.7rem;
+      font-size: 0.78rem;
+      padding: 0.4rem 0.55rem;
+      border-radius: 6px;
+      background: #f1f5f9;
+      color: var(--text-muted);
+      border: 1px dashed #cbd5e1;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      min-height: 1.4rem;
+    }
+
+    .status.hidden {
+      display: none;
+    }
+
+    .status.loading::before {
+      content: "";
+      width: 11px;
+      height: 11px;
+      border-radius: 999px;
+      border: 2px solid rgba(148, 163, 184, 0.7);
+      border-top-color: var(--accent);
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+
+    .status.error {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: var(--danger);
+    }
+
+    .status.error::before {
+      content: "!";
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: #fee2e2;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .summary-line {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+    }
+
+    .summary-line strong {
+      color: var(--text-main);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      background: var(--accent-soft);
+      color: #1f2933;
+      margin-right: 0.25rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .chip code {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .results-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .results-header h3 {
+      margin: 0;
+      font-size: 1rem;
+    }
+
+    .results-stats {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .table-wrapper {
+      margin-top: 0.7rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      background: linear-gradient(to bottom, #f9fafb, #ffffff 40%);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      min-width: 420px;
+    }
+
+    thead {
+      background: #f3f4f6;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    th,
+    td {
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th:nth-child(1),
+    th:nth-child(2),
+    th:nth-child(3),
+    td:nth-child(1),
+    td:nth-child(2),
+    td:nth-child(3) {
+      text-align: left;
+    }
+
+    th {
+      font-weight: 600;
+      color: #4b5563;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #f9fafb;
+    }
+
+    tbody tr:hover {
+      background: #eef2ff;
+    }
+
+    .table-scroll {
+      max-height: 400px;
+      overflow: auto;
+    }
+
+    .note {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+
+    .controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-top: 0.8rem;
+      align-items: flex-end;
+    }
+
+    .controls-row .form-group {
+      flex: 1 1 180px;
+      margin-bottom: 0;
+    }
+
+    select[multiple] {
+      height: 7.5rem;
+      background: #f9fafb;
+    }
+
+    #chartContainer {
+      margin-top: 1.1rem;
+      padding-top: 0.7rem;
+      border-top: 1px dashed #e5e7eb;
+    }
+
+    #chartCanvas {
+      width: 100%;
+      max-height: 380px;
+    }
+
+    footer {
+      max-width: 1200px;
+      margin: 0 auto 1.2rem;
+      padding: 0 1rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    footer a {
+      color: inherit;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>English Prescribing Dataset (EPD) with SNOMED Code – Explorer</h1>
+      <p>
+        Search by BNF presentation name and view prescribing totals by practice and month,
+        directly from the NHSBSA Open Data API.
+      </p>
+    </div>
+  </header>
+
+  <main>
+    <div class="layout">
+      <!-- Sidebar / Controls -->
+      <section class="panel">
+        <h2>
+          Search parameters
+          <span class="pill">
+            Live API
+            <span>EPD</span>
+          </span>
+        </h2>
+
+        <form id="searchForm">
+          <div class="form-group">
+            <label for="drugQuery">Drug name (BNF presentation)</label>
+            <input
+              type="text"
+              id="drugQuery"
+              name="drugQuery"
+              required
+              autocomplete="off"
+              value="Lorazepam 250microgram tablets"
+            />
+            <div class="help-text">
+              Full BNF presentation text as in the dataset, e.g.
+              <code style="font-family: var(--mono); font-size: 0.75rem;">Lorazepam 250microgram tablets</code>.
+            </div>
+          </div>
+
+          <div class="inline-checkbox">
+            <input type="checkbox" id="exactMatch" checked />
+            <label for="exactMatch" style="margin: 0; font-weight: 400;">
+              Exact match on BNF presentation name
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label>Month range</label>
+            <div style="display:flex; gap:0.4rem;">
+              <div style="flex:1;">
+                <select id="startMonth"></select>
+                <div class="help-text">Start</div>
+              </div>
+              <div style="flex:1;">
+                <select id="endMonth"></select>
+                <div class="help-text">End</div>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="primary" id="runButton">
+            <span>Run query</span>
+          </button>
+
+          <div id="status" class="status loading">
+            Initialising months from NHSBSA Open Data…
+          </div>
+        </form>
+      </section>
+
+      <!-- Main content -->
+      <section class="panel">
+        <div id="summaryArea">
+          <p class="summary-line">
+            Choose a drug, pick a month range, and click <strong>Run query</strong>.
+          </p>
+          <p class="summary-line">
+            This page queries <code style="font-family:var(--mono);">english-prescribing-dataset-epd-with-snomed-code</code>
+            via the CKAN Data API (<code style="font-family:var(--mono);">datastore_search</code>) in your browser.
+          </p>
+        </div>
+
+        <div id="presentationChoice" class="hidden" style="margin-top: 0.6rem;">
+          <div class="form-group">
+            <label for="presentationSelect">BNF presentation (multiple matches found)</label>
+            <select id="presentationSelect"></select>
+            <div class="help-text">
+              The query matched several BNF presentations – pick one to focus on.
+            </div>
+          </div>
+        </div>
+
+        <div id="resultsArea" class="hidden">
+          <div class="results-header">
+            <h3 id="resultsTitle">Results</h3>
+            <div class="results-stats" id="resultsStats"></div>
+          </div>
+
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+            <button type="button" class="secondary" id="downloadCsvButton">
+              ⬇️ Download practice × month CSV
+            </button>
+          </div>
+
+          <div id="tableContainer" class="table-wrapper">
+            <div class="table-scroll">
+              <table id="resultsTable"></table>
+            </div>
+            <div class="note" id="tableNote"></div>
+          </div>
+
+          <div id="chartContainer" class="hidden">
+            <div class="controls-row">
+              <div class="form-group">
+                <label for="metricSelect">Metric to chart</label>
+                <select id="metricSelect"></select>
+              </div>
+              <div class="form-group">
+                <label for="practicesSelect">Practices (hold Ctrl/Cmd for multi‑select)</label>
+                <select id="practicesSelect" multiple></select>
+                <div class="help-text">
+                  Practices are ordered by total items for the selected drug.
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:0.7rem;">
+              <canvas id="chartCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    This tool queries the NHS Business Services Authority
+    <em>English Prescribing Dataset (EPD) with SNOMED Code</em> via the public CKAN Data API.
+    Data © NHSBSA, licensed under the Open Government Licence.  [oai_citation:2‡opendata.nhsbsa.net](https://opendata.nhsbsa.net/dataset/english-prescribing-dataset-epd-with-snomed-code)
+  </footer>
+
+  <!-- Chart.js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <script>
+    const API_BASE = "https://opendata.nhsbsa.net/api/3/action";
+    const DATASET_ID = "english-prescribing-dataset-epd-with-snomed-code";
+    const PAGE_SIZE = 32000;
+    const MAX_PAGES_PER_MONTH = 10; // safety cap
+    const MAX_DISPLAY_ROWS = 500;
+    const PRACTICE_SELECT_LIMIT = 60;
+    const METRIC_COLUMNS = ["ITEMS", "TOTAL_QUANTITY", "NIC", "ACTUAL_COST", "ADQ_USAGE"];
+
+    let monthsIndex = [];      // [{ yearMonth: '2025-09', resourceId: 'EPD_SNOMED_202509' }, ...]
+    let rawRecords = [];       // all raw rows fetched for current query
+    let aggregated = [];       // practice-month aggregates
+    let chartInstance = null;  // Chart.js instance
+
+    // --- Utility helpers ---------------------------------------------------
+
+    function $(id) {
+      return document.getElementById(id);
+    }
+
+    function setStatus(message, { loading = false, error = false } = {}) {
+      const el = $("status");
+      if (!el) return;
+      el.textContent = message || "";
+      el.classList.remove("hidden", "loading", "error");
+      if (loading) el.classList.add("loading");
+      if (error) el.classList.add("error");
+      if (!loading && !error && !message) {
+        el.classList.add("hidden");
+      }
+    }
+
+    function setFormEnabled(enabled) {
+      $("drugQuery").disabled = !enabled;
+      $("exactMatch").disabled = !enabled;
+      $("startMonth").disabled = !enabled;
+      $("endMonth").disabled = !enabled;
+      $("runButton").disabled = !enabled;
+    }
+
+    function csvEscape(value) {
+      if (value === null || value === undefined) return "";
+      const s = String(value);
+      if (/[",\n]/.test(s)) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    function downloadCsv() {
+      if (!aggregated.length) {
+        alert("No aggregated data available yet.");
+        return;
+      }
+      const cols = Object.keys(aggregated[0]);
+      const lines = [cols.join(",")];
+      aggregated.forEach(row => {
+        const line = cols.map(c => csvEscape(row[c])).join(",");
+        lines.push(line);
+      });
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "epd_practice_by_month.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // --- API functions -----------------------------------------------------
+
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} – ${res.statusText}`);
+      }
+      const data = await res.json();
+      if (data && data.success === false) {
+        throw new Error("API returned success = false");
+      }
+      return data;
+    }
+
+    async function initMonths() {
+      try {
+        const url = `${API_BASE}/package_show?id=${encodeURIComponent(DATASET_ID)}`;
+        const data = await fetchJson(url);
+        const resources = (data.result && data.result.resources) || [];
+
+        const months = [];
+        resources.forEach(r => {
+          const name = r.name || "";
+          if (!name.startsWith("EPD_SNOMED_")) return;
+          const yyyymm = name.split("_").pop();
+          if (!/^\d{6}$/.test(yyyymm)) return;
+          const year = yyyymm.slice(0, 4);
+          const month = yyyymm.slice(4, 6);
+          const yearMonth = `${year}-${month}`;
+          months.push({ yearMonth, resourceId: name });
+        });
+
+        months.sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+        monthsIndex = months;
+
+        if (!monthsIndex.length) {
+          setStatus("No monthly resources found in dataset metadata.", { error: true });
+          setFormEnabled(false);
+          return;
+        }
+
+        // Populate selects
+        const startSel = $("startMonth");
+        const endSel = $("endMonth");
+        startSel.innerHTML = "";
+        endSel.innerHTML = "";
+
+        monthsIndex.forEach(m => {
+          const opt1 = document.createElement("option");
+          opt1.value = m.yearMonth;
+          opt1.textContent = m.yearMonth;
+          startSel.appendChild(opt1);
+
+          const opt2 = document.createElement("option");
+          opt2.value = m.yearMonth;
+          opt2.textContent = m.yearMonth;
+          endSel.appendChild(opt2);
+        });
+
+        const lastIdx = monthsIndex.length - 1;
+        const firstIdx = Math.max(0, lastIdx - 11);
+        startSel.value = monthsIndex[firstIdx].yearMonth;
+        endSel.value = monthsIndex[lastIdx].yearMonth;
+
+        setStatus("Months loaded. Enter a drug and run the query.");
+      } catch (err) {
+        setStatus(
+          `Failed to load months from NHSBSA Open Data API: ${err.message}. ` +
+          "If you see a 'Failed to fetch' type error in the browser console, " +
+          "it may be due to network or CORS restrictions.",
+          { error: true }
+        );
+        setFormEnabled(false);
+      }
+    }
+
+    async function fetchDrugDataForResource(resourceId, drugQuery, exactMatch) {
+      let offset = 0;
+      let pages = 0;
+      const allRecords = [];
+
+      while (pages < MAX_PAGES_PER_MONTH) {
+        const params = new URLSearchParams({
+          resource_id: resourceId,
+          limit: String(PAGE_SIZE),
+          offset: String(offset)
+        });
+
+        if (exactMatch) {
+          params.set("filters", JSON.stringify({ BNF_PRESENTATION_NAME: drugQuery }));
+        } else {
+          params.set("q", JSON.stringify({ BNF_PRESENTATION_NAME: drugQuery }));
+        }
+
+        const url = `${API_BASE}/datastore_search?${params.toString()}`;
+        const data = await fetchJson(url);
+        const result = data.result || {};
+        const records = result.records || [];
+        const total = result.total || 0;
+
+        if (!records.length) break;
+
+        allRecords.push(...records);
+
+        offset += PAGE_SIZE;
+        pages += 1;
+        if (offset >= total) break;
+      }
+
+      return allRecords;
+    }
+
+    // --- Aggregation & display --------------------------------------------
+
+    function aggregateByPracticeMonth(records) {
+      const map = new Map();
+
+      records.forEach(rec => {
+        const ym = rec.YEAR_MONTH;
+        const pcode = rec.PRACTICE_CODE || "";
+        const pname = rec.PRACTICE_NAME || "";
+        if (!ym || !pcode) return;
+
+        const key = `${ym}||${pcode}`;
+        let agg = map.get(key);
+        if (!agg) {
+          agg = {
+            YEAR_MONTH: ym,
+            PRACTICE_CODE: pcode,
+            PRACTICE_NAME: pname
+          };
+          METRIC_COLUMNS.forEach(col => (agg[col] = 0));
+          map.set(key, agg);
+        }
+
+        METRIC_COLUMNS.forEach(col => {
+          const val = rec[col];
+          if (val !== null && val !== undefined && val !== "") {
+            const num = Number(val);
+            if (!Number.isNaN(num)) {
+              agg[col] += num;
+            }
+          }
+        });
+      });
+
+      const arr = Array.from(map.values());
+      arr.sort((a, b) => {
+        if (a.YEAR_MONTH !== b.YEAR_MONTH) {
+          return a.YEAR_MONTH.localeCompare(b.YEAR_MONTH);
+        }
+        return (a.PRACTICE_NAME || "").localeCompare(b.PRACTICE_NAME || "");
+      });
+      return arr;
+    }
+
+    function renderTable(data) {
+      const table = $("resultsTable");
+      const note = $("tableNote");
+      table.innerHTML = "";
+      note.textContent = "";
+
+      if (!data.length) {
+        table.innerHTML = "<tbody><tr><td>No data to display.</td></tr></tbody>";
+        return;
+      }
+
+      const first = data[0];
+      const metricsAvailable = METRIC_COLUMNS.filter(col => col in first);
+      const columns = ["YEAR_MONTH", "PRACTICE_CODE", "PRACTICE_NAME", ...metricsAvailable];
+
+      const thead = document.createElement("thead");
+      const trHead = document.createElement("tr");
+      columns.forEach(col => {
+        const th = document.createElement("th");
+        th.textContent = col;
+        trHead.appendChild(th);
+      });
+      thead.appendChild(trHead);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      const rowsToShow = data.slice(0, MAX_DISPLAY_ROWS);
+      rowsToShow.forEach(row => {
+        const tr = document.createElement("tr");
+        columns.forEach(col => {
+          const td = document.createElement("td");
+          let value = row[col];
+
+          if (metricsAvailable.includes(col)) {
+            const num = Number(value);
+            if (!Number.isNaN(num)) {
+              // 2dp for money & ADQ, 0dp for counts
+              const dp = ["NIC", "ACTUAL_COST", "ADQ_USAGE"].includes(col) ? 2 : 0;
+              value = num.toLocaleString("en-GB", {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: dp
+              });
+            }
+          }
+
+          td.textContent = value === undefined || value === null ? "" : value;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+
+      if (data.length > MAX_DISPLAY_ROWS) {
+        note.textContent = `Showing the first ${MAX_DISPLAY_ROWS.toLocaleString(
+          "en-GB"
+        )} rows out of ${data.length.toLocaleString("en-GB")}. Use the CSV download for the full table.`;
+      } else {
+        note.textContent = `${data.length.toLocaleString("en-GB")} practice‑month rows.`;
+      }
+    }
+
+    function buildPracticeOptions() {
+      const metricCol = "ITEMS";
+      const practiceTotals = new Map();
+
+      aggregated.forEach(row => {
+        const name = row.PRACTICE_NAME || row.PRACTICE_CODE;
+        if (!name) return;
+        const current = practiceTotals.get(name) || 0;
+        const add = Number(row[metricCol]) || 0;
+        practiceTotals.set(name, current + add);
+      });
+
+      const sorted = Array.from(practiceTotals.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, PRACTICE_SELECT_LIMIT);
+
+      const select = $("practicesSelect");
+      select.innerHTML = "";
+      sorted.forEach(([name]) => {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      });
+
+      // Preselect up to 6 practices
+      Array.from(select.options)
+        .slice(0, 6)
+        .forEach(opt => (opt.selected = true));
+    }
+
+    function buildMetricOptions() {
+      if (!aggregated.length) return;
+      const first = aggregated[0];
+      const available = METRIC_COLUMNS.filter(c => c in first);
+      const sel = $("metricSelect");
+      sel.innerHTML = "";
+      available.forEach(col => {
+        const opt = document.createElement("option");
+        opt.value = col;
+        opt.textContent = col;
+        sel.appendChild(opt);
+      });
+    }
+
+    function updateChart() {
+      if (!aggregated.length) return;
+
+      const metric = $("metricSelect").value;
+      const practiceSelect = $("practicesSelect");
+      const selectedPractices = Array.from(practiceSelect.selectedOptions).map(
+        o => o.value
+      );
+
+      if (!metric || !selectedPractices.length) {
+        if (chartInstance) {
+          chartInstance.destroy();
+          chartInstance = null;
+        }
+        return;
+      }
+
+      const months = Array.from(
+        new Set(aggregated.map(row => row.YEAR_MONTH))
+      ).sort();
+
+      const datasets = selectedPractices.map(name => {
+        const values = months.map(m => {
+          const row = aggregated.find(
+            r => r.YEAR_MONTH === m && (r.PRACTICE_NAME === name || r.PRACTICE_CODE === name)
+          );
+          const v = row ? Number(row[metric]) || 0 : 0;
+          return v;
+        });
+        return {
+          label: name,
+          data: values,
+          tension: 0.2,
+          pointRadius: 2,
+          borderWidth: 2
+          // Chart.js will assign colours automatically
+        };
+      });
+
+      const ctx = $("chartCanvas").getContext("2d");
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      chartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: months,
+          datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: "index",
+            intersect: false
+          },
+          plugins: {
+            legend: {
+              position: "bottom"
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  const v = ctx.parsed.y;
+                  return `${ctx.dataset.label}: ${v.toLocaleString("en-GB", {
+                    maximumFractionDigits: 2
+                  })}`;
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+
+    function applyPresentationFilter() {
+      if (!rawRecords.length) return;
+
+      const select = $("presentationSelect");
+      const chosen = select.value;
+      const filtered = chosen
+        ? rawRecords.filter(r => r.BNF_PRESENTATION_NAME === chosen)
+        : rawRecords.slice();
+
+      aggregated = aggregateByPracticeMonth(filtered);
+      renderTable(aggregated);
+      buildMetricOptions();
+      buildPracticeOptions();
+      $("chartContainer").classList.toggle("hidden", !aggregated.length);
+      updateChart();
+
+      const statsEl = $("resultsStats");
+      statsEl.textContent = `${aggregated.length.toLocaleString(
+        "en-GB"
+      )} practice‑month rows • ${filtered.length.toLocaleString(
+        "en-GB"
+      )} raw rows.`;
+    }
+
+    // --- Event handlers ----------------------------------------------------
+
+    async function handleSearch(ev) {
+      ev.preventDefault();
+
+      const drugQuery = $("drugQuery").value.trim();
+      const exactMatch = $("exactMatch").checked;
+      const startMonth = $("startMonth").value;
+      const endMonth = $("endMonth").value;
+
+      if (!drugQuery) {
+        alert("Please enter a drug name (BNF presentation).");
+        return;
+      }
+
+      if (startMonth > endMonth) {
+        setStatus("Start month is after end month – please adjust the range.", {
+          error: true
+        });
+        return;
+      }
+
+      const selectedMonths = monthsIndex.filter(
+        m => m.yearMonth >= startMonth && m.yearMonth <= endMonth
+      );
+
+      if (!selectedMonths.length) {
+        setStatus("No months selected – please adjust the month range.", {
+          error: true
+        });
+        return;
+      }
+
+      setFormEnabled(false);
+      setStatus("Querying NHSBSA Open Data API for selected months…", {
+        loading: true
+      });
+      $("resultsArea").classList.add("hidden");
+      $("presentationChoice").classList.add("hidden");
+      $("summaryArea").innerHTML =
+        `<p class="summary-line"><strong>BNF query:</strong> <code style="font-family:${getComputedStyle(document.documentElement).getPropertyValue(
+          "--mono"
+        )}; font-size:0.8rem;">${drugQuery}</code></p>` +
+        `<p class="summary-line"><strong>Months:</strong> ${startMonth} → ${endMonth} (${selectedMonths.length} month${selectedMonths.length > 1 ? "s" : ""})</p>`;
+
+      rawRecords = [];
+      aggregated = [];
+      if (chartInstance) {
+        chartInstance.destroy();
+        chartInstance = null;
+      }
+
+      try {
+        for (const m of selectedMonths) {
+          setStatus(
+            `Fetching ${m.yearMonth} (${m.resourceId})…`,
+            { loading: true }
+          );
+          const rows = await fetchDrugDataForResource(
+            m.resourceId,
+            drugQuery,
+            exactMatch
+          );
+          rawRecords.push(...rows);
+        }
+
+        if (!rawRecords.length) {
+          setStatus(
+            "No rows found for that drug name in the selected months. " +
+              "Check the spelling or try disabling exact‑match.",
+            { error: true }
+          );
+          setFormEnabled(true);
+          return;
+        }
+
+        setStatus("");
+
+        // BNF presentation choice (if needed)
+        const names = Array.from(
+          new Set(
+            rawRecords
+              .map(r => r.BNF_PRESENTATION_NAME)
+              .filter(Boolean)
+          )
+        ).sort();
+
+        const presentationSelect = $("presentationSelect");
+        presentationSelect.innerHTML = "";
+
+        if (names.length > 1) {
+          names.forEach(n => {
+            const opt = document.createElement("option");
+            opt.value = n;
+            opt.textContent = n;
+            presentationSelect.appendChild(opt);
+          });
+          $("presentationChoice").classList.remove("hidden");
+          presentationSelect.onchange = applyPresentationFilter;
+        } else if (names.length === 1) {
+          const opt = document.createElement("option");
+          opt.value = names[0];
+          opt.textContent = names[0];
+          presentationSelect.appendChild(opt);
+          $("presentationChoice").classList.add("hidden");
+        } else {
+          $("presentationChoice").classList.add("hidden");
+        }
+
+        // Aggregate + render
+        applyPresentationFilter();
+        $("resultsArea").classList.remove("hidden");
+
+        const title = $("resultsTitle");
+        if (presentationSelect.options.length === 1) {
+          title.textContent =
+            "Results – " + presentationSelect.options[0].textContent;
+        } else if (presentationSelect.options.length > 1) {
+          title.textContent = "Results – multiple BNF presentations";
+        } else {
+          title.textContent = "Results";
+        }
+      } catch (err) {
+        setStatus(
+          `Error while querying the Open Data API: ${err.message}`,
+          { error: true }
+        );
+      } finally {
+        setFormEnabled(true);
+      }
+    }
+
+    // --- Initialise --------------------------------------------------------
+
+    document.addEventListener("DOMContentLoaded", () => {
+      $("searchForm").addEventListener("submit", handleSearch);
+      $("downloadCsvButton").addEventListener("click", downloadCsv);
+      $("metricSelect").addEventListener("change", updateChart);
+      $("practicesSelect").addEventListener("change", updateChart);
+      initMonths();
+    });
+  </script>
+</body>
+</html>
