@@ -721,20 +721,38 @@
       }
     }
 
-    // Robust paginated fetch that advances by the number of records actually returned
+    // Helper sleep
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Robust paginated fetch that advances by the number of records actually returned.
+    // Returns an object: { records: Array, error: string|null }
     async function fetchDrugDataForResource(resourceId, queryText, exactMatch, mode) {
+      // Use a minimal field list to reduce payload and server strain.
+      const fields = [
+        "YEAR_MONTH",
+        "PRACTICE_CODE",
+        "PRACTICE_NAME",
+        ...METRIC_COLUMNS,
+        "BNF_PRESENTATION_NAME",
+        "BNF_CODE"
+      ];
+
       let offset = 0;
       let pages = 0;
       const allRecords = [];
+      const maxRetries = 3;
 
+      // We'll try multiple attempts when the API returns 500s (transient server errors).
       while (pages < MAX_PAGES_PER_MONTH) {
         const params = new URLSearchParams({
           resource_id: resourceId,
           limit: String(PAGE_SIZE),
-          offset: String(offset)
+          offset: String(offset),
+          fields: JSON.stringify(fields)
         });
 
-        // Choose filter param depending on mode
         if (exactMatch) {
           if (mode === "bnf_code") {
             params.set("filters", JSON.stringify({ BNF_CODE: queryText }));
@@ -748,63 +766,74 @@
 
         const url = `${API_BASE}/datastore_search?${params.toString()}`;
 
-        try {
-          const data = await fetchJson(url);
-          const result = data.result || {};
-          const records = result.records || [];
-          const total = result.total || 0;
+        let attempt = 0;
+        let lastErr = null;
 
-          if (records.length === 0) break;
+        while (attempt <= maxRetries) {
+          try {
+            const data = await fetchJson(url);
+            const result = data.result || {};
+            const records = result.records || [];
+            const total = Number(result.total) || 0;
 
-          allRecords.push(...records);
+            if (records.length === 0) {
+              // no more data for this resource
+              return { records: allRecords, error: null };
+            }
 
-          // advance offset by number of records actually returned (server may cap limit)
-          offset += records.length;
-          pages += 1;
+            allRecords.push(...records);
 
-          if (offset >= total) break;
-        } catch (err) {
-          console.warn(`Request failed for ${resourceId} offset=${offset} limit=${PAGE_SIZE}:`, err.message);
+            // advance offset by number of records actually returned (server may cap limit)
+            offset += records.length;
+            pages += 1;
 
-          // attempt a single retry with smaller limit
-          if (PAGE_SIZE > 50) {
-            const retryParams = new URLSearchParams({
-              resource_id: resourceId,
-              limit: "50",
-              offset: String(offset)
-            });
-            if (exactMatch) {
-              if (mode === "bnf_code") {
-                retryParams.set("filters", JSON.stringify({ BNF_CODE: queryText }));
+            if (offset >= total) {
+              return { records: allRecords, error: null };
+            }
+            // break out of retry loop for this page and continue paging
+            break;
+          } catch (err) {
+            lastErr = err;
+            // If server returned 500-like error, back off and retry a few times.
+            attempt += 1;
+            const wait = 500 * attempt; // 500ms, 1000ms, 1500ms...
+            console.warn(`Request failed for ${resourceId} offset=${offset} limit=${PAGE_SIZE} (attempt ${attempt}):`, err.message);
+            await sleep(wait);
+
+            // On attempt > 1, also try a smaller page size via a new URL
+            if (attempt === 2) {
+              const retryParams = new URLSearchParams({
+                resource_id: resourceId,
+                limit: "50",
+                offset: String(offset),
+                fields: JSON.stringify(fields)
+              });
+              if (exactMatch) {
+                if (mode === "bnf_code") {
+                  retryParams.set("filters", JSON.stringify({ BNF_CODE: queryText }));
+                } else {
+                  retryParams.set("filters", JSON.stringify({ BNF_PRESENTATION_NAME: queryText }));
+                }
               } else {
-                retryParams.set("filters", JSON.stringify({ BNF_PRESENTATION_NAME: queryText }));
+                retryParams.set("q", queryText);
               }
-            } else {
-              retryParams.set("q", queryText);
+              // swap the url we're using for next attempt
+              // eslint-disable-next-line no-param-reassign
+              // (just local variable reassignment)
+              url = `${API_BASE}/datastore_search?${retryParams.toString()}`;
             }
-            const retryUrl = `${API_BASE}/datastore_search?${retryParams.toString()}`;
-            try {
-              const data2 = await fetchJson(retryUrl);
-              const result2 = data2.result || {};
-              const recs2 = result2.records || [];
-              if (recs2.length === 0) break;
-              allRecords.push(...recs2);
-              offset += recs2.length;
-              pages += 1;
-              const total2 = result2.total || 0;
-              if (offset >= total2) break;
-              continue;
-            } catch (err2) {
-              console.error("Retry also failed:", err2.message);
-              throw new Error(`Failed while querying the Open Data API: ${err2.message}`);
+
+            // if exceeded retries, move on
+            if (attempt > maxRetries) {
+              const msg = `Failed while querying the Open Data API: ${lastErr.message}`;
+              console.error(msg);
+              return { records: allRecords, error: msg };
             }
-          } else {
-            throw new Error(`Failed while querying the Open Data API: ${err.message}`);
           }
         }
       }
 
-      return allRecords;
+      return { records: allRecords, error: null };
     }
 
     // --- Aggregation & display --------------------------------------------
@@ -989,7 +1018,7 @@
         new Set(aggregated.map(row => row.YEAR_MONTH))
       ).sort();
 
-      const datasets = selectedPractices.map(name => {
+      const datasets = selectedPractices.map((name, idx) => {
         const values = months.map(m => {
           const row = aggregated.find(
             r => r.YEAR_MONTH === m && (r.PRACTICE_NAME === name || r.PRACTICE_CODE === name)
@@ -1000,17 +1029,14 @@
         return {
           label: name,
           data: values,
-          tension: 0.2,
-          pointRadius: 2,
-          borderWidth: 2
+          borderColor: `hsl(${(idx * 47) % 360} 70% 40%)`,
+          backgroundColor: `hsla(${(idx * 47) % 360} 70% 20% / 0.15)`,
+          tension: 0.2
         };
       });
 
       const ctx = $("chartCanvas").getContext("2d");
-      if (chartInstance) {
-        chartInstance.destroy();
-        }
-
+      if (chartInstance) chartInstance.destroy();
       chartInstance = new Chart(ctx, {
         type: "line",
         data: {
@@ -1019,25 +1045,9 @@
         },
         options: {
           responsive: true,
-          maintainAspectRatio: false,
           interaction: {
-            mode: "index",
+            mode: 'index',
             intersect: false
-          },
-          plugins: {
-            legend: {
-              position: "bottom"
-            },
-            tooltip: {
-              callbacks: {
-                label: ctx => {
-                  const v = ctx.parsed.y;
-                  return `${ctx.dataset.label}: ${v.toLocaleString("en-GB", {
-                    maximumFractionDigits: 2
-                  })}`;
-                }
-              }
-            }
           },
           scales: {
             y: {
@@ -1048,200 +1058,189 @@
       });
     }
 
-    function applyPresentationFilter() {
-      if (!rawRecords.length) return;
+    // --- Main search execution --------------------------------------------
 
-      const select = $("presentationSelect");
-      const chosen = select.value;
-      const filtered = chosen
-        ? rawRecords.filter(r => {
-            // allow matching either BNF_PRESENTATION_NAME or BNF_CODE
-            return r.BNF_PRESENTATION_NAME === chosen || r.BNF_CODE === chosen;
-          })
-        : rawRecords.slice();
-
-      aggregated = aggregateByPracticeMonth(filtered);
-      renderTable(aggregated);
-      buildMetricOptions();
-      buildPracticeOptions();
-      $("chartContainer").classList.toggle("hidden", !aggregated.length);
-      updateChart();
-
-      const statsEl = $("resultsStats");
-      statsEl.textContent = `${aggregated.length.toLocaleString(
-        "en-GB"
-      )} practice‑month rows • ${filtered.length.toLocaleString(
-        "en-GB"
-      )} raw rows.`;
-    }
-
-    // --- BNF code lookup -----------------------------------------------
-
-    // Lookup BNF codes and presentation names using the most recent month resource.
-    // Populates the presentationSelect with "BNF_CODE — BNF_PRESENTATION_NAME" options
-    async function lookupBnfCodes() {
-      const q = $("drugQuery").value.trim();
-      if (!q) {
-        alert("Enter some text to look up BNF codes/presentations.");
-        return;
-      }
-      if (!monthsIndex.length) {
-        alert("Month list not loaded yet.");
-        return;
-      }
-
-      setStatus("Looking up matching BNF codes in latest month…", { loading: true });
-      setFormEnabled(false);
-      try {
-        const latest = monthsIndex[monthsIndex.length - 1];
-        const params = new URLSearchParams({
-          resource_id: latest.resourceId,
-          limit: "500",
-          q: q
-        });
-        const url = `${API_BASE}/datastore_search?${params.toString()}`;
-        const data = await fetchJson(url);
-        const recs = (data.result && data.result.records) || [];
-
-        // Extract unique BNF_CODE + presentation pairs
-        const map = new Map();
-        recs.forEach(r => {
-          const code = r.BNF_CODE || "";
-          const pres = r.BNF_PRESENTATION_NAME || r.BNF_DESCRIPTION || "";
-          const key = code || pres;
-          if (!key) return;
-          map.set(key, { code, pres });
-        });
-
-        const select = $("presentationSelect");
-        select.innerHTML = "";
-
-        if (map.size === 0) {
-          setStatus("No matching presentations/codes found in latest month.", { error: true });
-          $("presentationChoice").classList.add("hidden");
-        } else {
-          // Build options showing both code and presentation (if code present)
-          Array.from(map.values()).forEach(item => {
-            const opt = document.createElement("option");
-            // If BNF_CODE available, use it as value so user can search/filter by code
-            opt.value = item.code || item.pres;
-            opt.textContent = item.code ? `${item.code} — ${item.pres}` : item.pres;
-            select.appendChild(opt);
-          });
-          $("presentationChoice").classList.remove("hidden");
-          setStatus(`Found ${map.size} matching presentation(s). Pick one or run the query.`, {});
-        }
-      } catch (err) {
-        setStatus(`Lookup failed: ${err.message}`, { error: true });
-      } finally {
-        setFormEnabled(true);
-      }
-    }
-
-    // --- Main query flow -------------------------------------------------
-
-    async function runQuery(event) {
-      if (event) event.preventDefault();
-      const q = $("drugQuery").value.trim();
-      if (!q) {
-        alert("Enter a drug name or BNF code first.");
-        return;
-      }
-
-      const mode = $("searchMode").value; // presentation | bnf_code
-      const exactMatch = $("exactMatch").checked;
-      const start = $("startMonth").value;
-      const end = $("endMonth").value;
-      if (!start || !end) {
-        alert("Pick a month range.");
-        return;
-      }
-      const startIdx = monthsIndex.findIndex(m => m.yearMonth === start);
-      const endIdx = monthsIndex.findIndex(m => m.yearMonth === end);
-      if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
-        alert("Invalid month range.");
-        return;
-      }
-
-      setStatus("Querying the Open Data API…", { loading: true });
+    async function runQuery(ev) {
+      if (ev && ev.preventDefault) ev.preventDefault();
+      setStatus("Preparing query…", { loading: true });
       setFormEnabled(false);
       rawRecords = [];
       aggregated = [];
-      $("resultsArea").classList.add("hidden");
-      $("presentationChoice").classList.add("hidden");
 
-      try {
-        // iterate month resources between start and end
-        for (let i = startIdx; i <= endIdx; i++) {
-          const resourceId = monthsIndex[i].resourceId;
-          setStatus(`Querying ${monthsIndex[i].yearMonth}…`, { loading: true });
-          // fetch records for this resource matching the query
-          const rows = await fetchDrugDataForResource(resourceId, q, exactMatch, mode);
-          rawRecords.push(...rows);
+      const queryText = $("drugQuery").value.trim();
+      const exactMatch = $("exactMatch").checked;
+      const mode = $("searchMode").value;
+      const start = $("startMonth").value;
+      const end = $("endMonth").value;
 
-          // Early exit if we hit an extremely large raw set to avoid freezing browser
-          if (rawRecords.length > 500000) {
-            throw new Error("Result set too large to load in the browser. Narrow your query or download directly from NHSBSA.");
+      if (!queryText) {
+        setStatus("Please enter a drug query.", { error: true });
+        setFormEnabled(true);
+        return;
+      }
+
+      // Compute months to query
+      const startIdx = monthsIndex.findIndex(m => m.yearMonth === start);
+      const endIdx = monthsIndex.findIndex(m => m.yearMonth === end);
+      if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+        setStatus("Invalid month range selected.", { error: true });
+        setFormEnabled(true);
+        return;
+      }
+
+      const monthsToFetch = monthsIndex.slice(startIdx, endIdx + 1);
+
+      setStatus(`Querying ${monthsToFetch.length} month(s)…`, { loading: true });
+
+      const errors = [];
+      for (let i = 0; i < monthsToFetch.length; i++) {
+        const m = monthsToFetch[i];
+        const resourceId = m.resourceId;
+        // The API resource identifier expected by datastore_search is the resource.id (UUID) normally.
+        // In this dataset the resource name is used previously; try to find a resource id via package_show if needed.
+        // For resilience we will attempt both the resource name and the name as resource_id (some installations accept this).
+        try {
+          setStatus(`Querying ${m.yearMonth} (${i + 1}/${monthsToFetch.length})…`, { loading: true });
+
+          // primary attempt using resource name (as in previously used)
+          let result = await fetchDrugDataForResource(resourceId, queryText, exactMatch, mode);
+
+          // If result is empty and had an error, try searching by fetching package_show resource id and using that id (best-effort)
+          if ((result.records.length === 0 || result.error) && result.error) {
+            console.warn(`Primary request for ${resourceId} returned error, attempting to resolve explicit resource id.`);
+            // attempt to resolve resource id via package_show
+            try {
+              const meta = await fetchJson(`${API_BASE}/package_show?id=${encodeURIComponent(DATASET_ID)}`);
+              const resList = (meta.result && meta.result.resources) || [];
+              const found = resList.find(r => (r.name === resourceId || r.resource_id === resourceId || r.id === resourceId));
+              if (found && found.id) {
+                // second attempt using the found UUID id
+                result = await fetchDrugDataForResource(found.id, queryText, exactMatch, mode);
+              }
+            } catch (metaErr) {
+              console.warn("Failed to resolve resource id for retry:", metaErr.message);
+            }
           }
-        }
 
-        if (!rawRecords.length) {
-          setStatus("No records found for that query.", {});
+          if (result.error) {
+            errors.push({ month: m.yearMonth, resource: resourceId, error: result.error });
+          }
+
+          if (result.records && result.records.length) {
+            rawRecords.push(...result.records);
+          }
+        } catch (outerErr) {
+          const msg = outerErr && outerErr.message ? outerErr.message : String(outerErr);
+          errors.push({ month: m.yearMonth, resource: resourceId, error: msg });
+          console.error(`Request failed for ${resourceId}:`, msg);
+        }
+        // small delay to avoid hammering the API if multiple months are requested
+        await sleep(200);
+      }
+
+      // Aggregate and render
+      aggregated = aggregateByPracticeMonth(rawRecords);
+
+      $("resultsArea").classList.remove("hidden");
+      renderTable(aggregated);
+      buildMetricOptions();
+      buildPracticeOptions();
+      $("chartContainer").classList.remove("hidden");
+      updateChart();
+
+      // Update status with success or partial failures
+      if (errors.length) {
+        setStatus(`${aggregated.length} rows aggregated. ${errors.length} month(s) failed — see console for details.`, { error: true });
+        console.warn("Month fetch errors:", errors);
+        // attach errors to resultsStats
+        $("resultsStats").textContent = `${aggregated.length} rows (partial — ${errors.length} month(s) failed)`;
+      } else {
+        setStatus(`${aggregated.length} rows aggregated.`);
+        $("resultsStats").textContent = `${aggregated.length} rows`;
+      }
+
+      setFormEnabled(true);
+    }
+
+    // --- UI wiring --------------------------------------------------------
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      await initMonths();
+
+      $("searchForm").addEventListener("submit", runQuery);
+      $("downloadCsvButton").addEventListener("click", downloadCsv);
+      $("metricSelect").addEventListener("change", updateChart);
+      $("practicesSelect").addEventListener("change", updateChart);
+
+      // Basic lookup button (lightweight): query a single latest month for matches to help choose a presentation
+      $("lookupBnfButton").addEventListener("click", async () => {
+        const q = $("drugQuery").value.trim();
+        if (!q) {
+          setStatus("Enter something to lookup.", { error: true });
+          return;
+        }
+        setStatus("Looking up matching presentations (sample from most recent month)…", { loading: true });
+        setFormEnabled(false);
+
+        const latest = monthsIndex[monthsIndex.length - 1];
+        if (!latest) {
+          setStatus("No monthly resources available to lookup.", { error: true });
           setFormEnabled(true);
           return;
         }
 
-        // If user searched by presentation text and multiple presentations exist, allow choosing one
-        if (mode === "presentation") {
-          const distinctPres = Array.from(new Set(rawRecords.map(r => r.BNF_PRESENTATION_NAME).filter(Boolean)));
-          if (distinctPres.length > 1) {
-            const select = $("presentationSelect");
-            select.innerHTML = "";
-            distinctPres.forEach(p => {
-              const opt = document.createElement("option");
-              opt.value = p;
-              opt.textContent = p;
-              select.appendChild(opt);
-            });
+        try {
+          // Try exact first, then fallback to non-exact
+          let res = await fetchDrugDataForResource(latest.resourceId, q, true, "presentation");
+          if ((!res.records || !res.records.length) && !res.error) {
+            res = await fetchDrugDataForResource(latest.resourceId, q, false, "presentation");
+          }
+
+          if (res.error) {
+            setStatus(`Lookup failed: ${res.error}`, { error: true });
+            console.warn("Lookup error:", res.error);
+            setFormEnabled(true);
+            return;
+          }
+
+          const optionsMap = new Map();
+          (res.records || []).forEach(r => {
+            const key = (r.BNF_PRESENTATION_NAME || r.BNF_CODE || "").trim();
+            if (key) optionsMap.set(key, key);
+          });
+
+          const sel = $("presentationSelect");
+          sel.innerHTML = "";
+          Array.from(optionsMap.keys()).slice(0, 200).forEach(k => {
+            const opt = document.createElement("option");
+            opt.value = k;
+            opt.textContent = k;
+            sel.appendChild(opt);
+          });
+
+          if (sel.options.length > 1) {
             $("presentationChoice").classList.remove("hidden");
-            // default to first
-            select.value = distinctPres[0];
+            setStatus(`Found ${sel.options.length} matches (showing up to 200).`);
+          } else if (sel.options.length === 1) {
+            $("presentationChoice").classList.add("hidden");
+            $("drugQuery").value = sel.options[0].value;
+            setStatus("One match found and applied.");
           } else {
             $("presentationChoice").classList.add("hidden");
+            setStatus("No matches found.", { error: true });
           }
-        } else {
-          $("presentationChoice").classList.add("hidden");
+        } catch (err) {
+          setStatus(`Lookup failed: ${err.message}`, { error: true });
+        } finally {
+          setFormEnabled(true);
         }
+      });
 
-        // Aggregate and render
-        aggregated = aggregateByPracticeMonth(rawRecords);
-        renderTable(aggregated);
-        buildMetricOptions();
-        buildPracticeOptions();
-        $("chartContainer").classList.toggle("hidden", !aggregated.length);
-        updateChart();
-
-        $("resultsArea").classList.remove("hidden");
-        setStatus("", {});
-      } catch (err) {
-        setStatus(`Error while querying the Open Data API: ${err.message}`, { error: true });
-        console.error(err);
-      } finally {
-        setFormEnabled(true);
-      }
-    }
-
-    // --- Event wiring ----------------------------------------------------
-
-    document.addEventListener("DOMContentLoaded", () => {
-      initMonths();
-
-      $("searchForm").addEventListener("submit", runQuery);
-      $("downloadCsvButton").addEventListener("click", downloadCsv);
-      $("presentationSelect").addEventListener("change", applyPresentationFilter);
-      $("metricSelect").addEventListener("change", updateChart);
-      $("practicesSelect").addEventListener("change", updateChart);
-      $("lookupBnfButton").addEventListener("click", lookupBnfCodes);
+      // If user picks a presentation from the lookup, place into the query box
+      $("presentationSelect").addEventListener("change", () => {
+        const val = $("presentationSelect").value;
+        if (val) $("drugQuery").value = val;
+      });
     });
   </script>
 </body>
