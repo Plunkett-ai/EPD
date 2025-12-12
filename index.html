@@ -586,7 +586,7 @@
     // Field name fixed to actual API name
     const METRIC_COLUMNS = ["ITEMS", "TOTAL_QUANTITY", "NIC", "ACTUAL_COST", "ADQUSAGE"];
 
-    let monthsIndex = [];      // [{ yearMonth: '2025-09', resourceId: 'EPD_SNOMED_202509' }, ...]
+    let monthsIndex = [];      // [{ yearMonth: '2025-09', resourceId: '<uuid>', resourceName: 'EPD_SNOMED_202509' }, ...]
     let rawRecords = [];       // all raw rows fetched for current query
     let aggregated = [];       // practice-month aggregates
     let chartInstance = null;  // Chart.js instance
@@ -675,7 +675,7 @@
           const year = yyyymm.slice(0, 4);
           const month = yyyymm.slice(4, 6);
           const yearMonth = `${year}-${month}`;
-          months.push({ yearMonth, resourceId: name });
+          months.push({ yearMonth, resourceId: r.id, resourceName: name });
         });
 
         months.sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
@@ -764,7 +764,7 @@
 
           if (offset >= total) break;
         } catch (err) {
-          console.warn(`Request failed for ${resourceId} offset=${offset} limit=${PAGE_SIZE}:`, err.message);
+          console.warn(`Request failed for resourceId=${resourceId} offset=${offset} limit=${PAGE_SIZE}`, url, err.message);
 
           // attempt a single retry with smaller limit
           if (PAGE_SIZE > 50) {
@@ -795,11 +795,19 @@
               if (offset >= total2) break;
               continue;
             } catch (err2) {
-              console.error("Retry also failed:", err2.message);
-              throw new Error(`Failed while querying the Open Data API: ${err2.message}`);
+              console.error("Retry also failed:", retryUrl, err2.message);
+              setStatus(
+                "Server error (500) received. Try a smaller date range or disable 'Exact match'.",
+                { error: true }
+              );
+              throw new Error(`Failed while querying the Open Data API at ${retryUrl}: ${err2.message}`);
             }
           } else {
-            throw new Error(`Failed while querying the Open Data API: ${err.message}`);
+            setStatus(
+              "Server error (500) received. Try a smaller date range or disable 'Exact match'.",
+              { error: true }
+            );
+            throw new Error(`Failed while querying the Open Data API at ${url}: ${err.message}`);
           }
         }
       }
