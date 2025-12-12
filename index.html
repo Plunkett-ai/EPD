@@ -195,8 +195,8 @@
       $("resultsArea").classList.add("hidden");
       $("presentationChoice").classList.add("hidden");
       $("summaryArea").innerHTML =
-        `<p class="summary-line"><strong>BNF query:</strong> <code style="font-family:${getComputedStyle(document.documentElement).getPropertyValue("--mono")}; font-size:0.8rem;">${drugQuery}</code></p>
-         <p class="summary-line"><strong>Months:</strong> ${startMonth} → ${endMonth} (${selectedMonths.length} month${selectedMonths.length > 1 ? "s" : ""})</p>`;
+        `<p class="summary-line"><strong>BNF query:</strong> <code style="font-family:${getComputedStyle(document.documentElement).getPropertyValue("--mono")}; font-size:0.8rem;">${drugQuery}</code></p>` +
+        `<p class="summary-line"><strong>Months:</strong> ${startMonth} → ${endMonth} (${selectedMonths.length} month${selectedMonths.length > 1 ? "s" : ""})</p>`;
 
       rawRecords = [];
       aggregated = [];
