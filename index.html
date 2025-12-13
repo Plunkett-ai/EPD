@@ -50,6 +50,8 @@
     .summary-line { margin:0.25rem 0; font-size:0.95rem; }
     footer { max-width:1100px; margin: 1rem auto; padding:0 1rem 2rem; color:#6b7280; font-size:0.85rem; }
     .muted { color:#6b7280; font-size:0.9rem; }
+    .button-row { display:flex; gap:0.6rem; align-items:center; margin-top:0.6rem; }
+    .spacer { flex:1; }
   </style>
 </head>
 <body>
@@ -107,7 +109,12 @@
             </div>
           </div>
 
-          <button type="submit" class="primary" id="runButton"><span>Run query</span></button>
+          <div class="button-row">
+            <button type="submit" class="primary" id="runButton"><span>Run query</span></button>
+            <button type="button" class="secondary" id="downloadCsvButton" title="Download aggregated results as CSV" disabled>⬇️ Download CSV</button>
+            <div class="spacer"></div>
+            <small class="muted">Download CSV will export the aggregated practice-month rows shown in the table.</small>
+          </div>
         </form>
       </section>
 
@@ -153,6 +160,12 @@
       $("exactMatch").disabled = !enabled;
       $("startMonth").disabled = !enabled;
       $("endMonth").disabled = !enabled;
+      // during queries this may be disabled; otherwise enable/disable based on whether there is data
+      if (!enabled) {
+        $("downloadCsvButton").disabled = true;
+      } else {
+        $("downloadCsvButton").disabled = !(aggregated && aggregated.length);
+      }
     }
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -279,6 +292,7 @@
       const container = $("tableContainer");
       if (!rows || !rows.length) {
         container.innerHTML = "<p class='muted'>No rows to display.</p>";
+        $("downloadCsvButton").disabled = true;
         return;
       }
       let html = `<div class="help-text summary-line"><strong>Showing ${rows.length} aggregated rows</strong></div>`;
@@ -294,6 +308,8 @@
       }
       html += `</tbody></table>`;
       container.innerHTML = html;
+      // enable download if there's data
+      $("downloadCsvButton").disabled = !(rows && rows.length);
     }
 
     // Escape helper for safety
@@ -302,6 +318,53 @@
       return String(s).replace(/[&<>"']/g, function (m) {
         return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m];
       });
+    }
+
+    // CSV helper: quote and escape
+    function csvEscapeField(v) {
+      if (v === null || v === undefined) return '';
+      const s = String(v);
+      if (s.includes('"')) return '"' + s.replace(/"/g, '""') + '"';
+      if (s.includes(',') || s.includes('\n') || s.includes('\r')) return '"' + s + '"';
+      return s;
+    }
+
+    // Download aggregated data as CSV
+    function downloadCsv() {
+      if (!aggregated || !aggregated.length) {
+        alert("No data available to download.");
+        return;
+      }
+      const drugQuery = $("drugQuery").value.trim() || "query";
+      const startMonth = $("startMonth").value || "";
+      const endMonth = $("endMonth").value || "";
+      const safeQuery = drugQuery.replace(/\s+/g, '_').replace(/[^\w\-_.]/g, '');
+      const filename = `epd-${safeQuery}-${startMonth}-to-${endMonth}.csv`;
+
+      const headers = ["PRACTICE_CODE","PRACTICE_NAME","YEAR_MONTH","ITEMS","QTY","NET_COST"];
+      const lines = [headers.join(',')];
+      for (const r of aggregated) {
+        const row = [
+          csvEscapeField(r.PRACTICE_CODE),
+          csvEscapeField(r.PRACTICE_NAME),
+          csvEscapeField(r.YEAR_MONTH),
+          csvEscapeField(Number(r.ITEMS)),
+          csvEscapeField(Number(r.QTY)),
+          csvEscapeField(Number(r.NET_COST).toFixed(2))
+        ];
+        lines.push(row.join(','));
+      }
+      // Add BOM so Excel recognises UTF-8
+      const csvContent = '\uFEFF' + lines.join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
 
     // --- Run query using normalized fetch wrapper ---
@@ -339,6 +402,7 @@
 
       rawRecords = [];
       aggregated = [];
+      $("downloadCsvButton").disabled = true;
       const errors = [];
 
       try {
@@ -430,6 +494,7 @@
       initMonthsDemo();
       $("searchForm").addEventListener("submit", runQuery);
       $("lookupBnfButton").addEventListener("click", lookupBnf);
+      $("downloadCsvButton").addEventListener("click", downloadCsv);
       // initial visibility: show results area empty
       $("resultsArea").classList.remove("hidden");
       $("tableContainer").innerHTML = "<p class='muted'>Run a query or use Lookup to see demo data.</p>";
