@@ -58,8 +58,8 @@
 <body>
   <header>
     <div class="header-inner">
-      <h1 style="margin:0;font-size:1.25rem;">English Prescribing Dataset (EPD) — Explorer (demo)</h1>
-      <p style="margin:0.4rem 0 0;" class="muted">Demo copy — this page contains a local mock fetch implementation so it can run standalone. Replace the mock fetch with your NHSBSA/Open Data API call.</p>
+      <h1 style="margin:0;font-size:1.25rem;">English Prescribing Dataset (EPD) — Explorer</h1>
+      <p style="margin:0.4rem 0 0;" class="muted">Configure window.NHSBSA_CSV_BASE_URL to fetch real NHSBSA monthly CSV data. Falls back to demo mode if not configured.</p>
     </div>
   </header>
 
@@ -137,12 +137,16 @@
   </main>
 
   <footer>
-    <small>EPD Explorer — demo page. Replace the mock fetch implementation with your real fetchDrugDataForResource to use NHSBSA Open Data.</small>
+    <small>EPD Explorer — Set window.NHSBSA_CSV_BASE_URL to fetch real NHSBSA monthly CSV files. See console for configuration help.</small>
   </footer>
 
   <script>
     // Minimal DOM helper
     const $ = id => document.getElementById(id);
+
+    // Configuration: Set this to the NHSBSA CSV URL template with {YYYYMM} or {YYYY-MM} placeholder
+    // Example: window.NHSBSA_CSV_BASE_URL = "https://example.host/prescribing_{YYYYMM}.csv";
+    window.NHSBSA_CSV_BASE_URL = window.NHSBSA_CSV_BASE_URL || "";
 
     // State
     let monthsIndex = []; // array of { yearMonth, resourceId }
@@ -173,15 +177,311 @@
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    // --- Mock / demo implementations ---
-    // initMonths: populate last 18 months as demo
+    /**
+     * CSV Parser - Parses CSV text with support for quoted fields
+     * Handles:
+     * - Quoted fields with embedded commas
+     * - Escaped quotes (double quotes "")
+     * - Embedded newlines within quoted fields
+     * @param {string} csvText - The CSV text to parse
+     * @returns {Array<Array<string>>} Array of rows, each row is an array of field values
+     */
+    function parseCSV(csvText) {
+      const rows = [];
+      let currentRow = [];
+      let currentField = "";
+      let inQuotes = false;
+      let i = 0;
+
+      while (i < csvText.length) {
+        const char = csvText[i];
+        const nextChar = csvText[i + 1];
+
+        if (inQuotes) {
+          if (char === '"') {
+            if (nextChar === '"') {
+              // Escaped quote
+              currentField += '"';
+              i += 2;
+              continue;
+            } else {
+              // End of quoted field
+              inQuotes = false;
+              i++;
+              continue;
+            }
+          } else {
+            currentField += char;
+            i++;
+          }
+        } else {
+          if (char === '"') {
+            inQuotes = true;
+            i++;
+          } else if (char === ',') {
+            currentRow.push(currentField);
+            currentField = "";
+            i++;
+          } else if (char === '\n') {
+            currentRow.push(currentField);
+            if (currentRow.length > 0) {
+              rows.push(currentRow);
+            }
+            currentRow = [];
+            currentField = "";
+            i++;
+          } else if (char === '\r') {
+            // Skip carriage return
+            i++;
+          } else {
+            currentField += char;
+            i++;
+          }
+        }
+      }
+
+      // Handle last field and row
+      if (currentField || currentRow.length > 0) {
+        currentRow.push(currentField);
+        if (currentRow.length > 0) {
+          rows.push(currentRow);
+        }
+      }
+
+      return rows;
+    }
+
+    /**
+     * Column Normalization - Maps NHSBSA CSV columns to expected record shape
+     * Tries multiple common header name variations for each field to maximize compatibility.
+     * @param {Array<string>} row - Array of field values for a single row
+     * @param {Array<string>} headers - Array of column header names
+     * @returns {Object} Normalized record with standardized field names:
+     *   { PRACTICE_CODE, PRACTICE_NAME, BNF_PRESENTATION_NAME, BNF_CODE, ITEMS, QTY, NET_COST, YEAR_MONTH }
+     */
+    function normalizeRow(row, headers) {
+      const getCol = (names) => {
+        for (const name of names) {
+          const idx = headers.findIndex(h => h.toUpperCase() === name.toUpperCase());
+          if (idx !== -1) return row[idx] || "";
+        }
+        return "";
+      };
+
+      return {
+        PRACTICE_CODE: getCol(["PRACTICE_CODE", "PRACTICE", "PRACTICE_ID"]),
+        PRACTICE_NAME: getCol(["PRACTICE_NAME", "PRACTICE NAME", "PRACTICENAME"]),
+        BNF_PRESENTATION_NAME: getCol(["BNF_PRESENTATION_NAME", "BNF_DESCRIPTION", "BNF PRESENTATION NAME", "PRESENTATION", "BNF_PRESENTATION"]),
+        BNF_CODE: getCol(["BNF_CODE", "BNF CODE", "BNFCODE", "BNF"]),
+        ITEMS: parseFloat(getCol(["ITEMS", "ITEM_COUNT", "ITEM COUNT"])) || 0,
+        QTY: parseFloat(getCol(["QUANTITY", "QTY", "TOTAL_QUANTITY"])) || 0,
+        NET_COST: parseFloat(getCol(["NIC", "NET_COST", "NET COST", "ACTUAL_COST", "NET_INGREDIENT_COST"])) || 0,
+        YEAR_MONTH: getCol(["YEAR_MONTH", "YEAR MONTH", "YEARMONTH", "MONTH", "PERIOD"])
+      };
+    }
+
+    /**
+     * Demo data generator - Generates fake prescribing data for demo/testing purposes
+     * Preserved for resourceIds starting with "demo-" so local demo still works.
+     * @param {string} resourceId - Demo resource ID (e.g., "demo-202501")
+     * @param {string} queryText - Search query text
+     * @param {boolean} exactMatch - Whether to use exact or partial matching
+     * @param {string} mode - Search mode: "presentation" or "bnf_code"
+     * @returns {Promise<Array<Object>>} Array of normalized records
+     */
+    async function generateDemoData(resourceId, queryText, exactMatch, mode) {
+      await sleep(120);
+      const ym = resourceId.includes('demo-') ? `${resourceId.slice(5,9)}-${resourceId.slice(9,11)}` : resourceId;
+      const baseNames = [
+        "Lorazepam 250microgram tablets",
+        "Lorazepam 500microgram tablets",
+        "Diazepam 2mg tablets",
+        "Drospirenone 3mg tablets"
+      ];
+      
+      const q = (queryText || "").toLowerCase();
+      let matches = [];
+
+      if (mode === "bnf_code") {
+        // For demo, we'll just return empty for BNF code searches
+        return [];
+      } else {
+        matches = baseNames.filter(n => {
+          if (exactMatch) return n.toLowerCase() === q;
+          return n.toLowerCase().includes(q);
+        });
+      }
+
+      if (!matches.length) return [];
+
+      const practices = [
+        { code: "A10001", name: "Springfield Surgery" },
+        { code: "A10002", name: "Riverside Medical" },
+        { code: "A10003", name: "Hilltop Clinic" }
+      ];
+
+      const rows = [];
+      for (const p of practices) {
+        for (const name of matches) {
+          const seed = (name.length + p.code.length + ym.length) % 10;
+          const items = 10 + seed * 7;
+          const qty = items * (1 + (seed % 3));
+          const net = Number((items * (1.25 + (seed * 0.12))).toFixed(2));
+          rows.push({
+            PRACTICE_CODE: p.code,
+            PRACTICE_NAME: p.name,
+            BNF_PRESENTATION_NAME: name,
+            BNF_CODE: `0401010${seed}0AAAA${seed}`,
+            ITEMS: items,
+            QTY: qty,
+            NET_COST: net,
+            YEAR_MONTH: ym
+          });
+        }
+      }
+      return rows;
+    }
+
+    /**
+     * Real NHSBSA CSV fetch and parser implementation
+     * Fetches prescribing data from NHSBSA monthly CSV files and filters by BNF presentation or code.
+     * 
+     * @param {string} resourceId - Can be:
+     *   - "demo-YYYYMM" for demo mode
+     *   - Full CSV URL (starting with http:// or https://)
+     *   - Year-month string (YYYY-MM) to be combined with window.NHSBSA_CSV_BASE_URL template
+     * @param {string} queryText - The BNF presentation name or BNF code to search for
+     * @param {boolean} [exactMatch=true] - Whether to use exact match (true) or partial match (false)
+     * @param {string} [mode="presentation"] - Search mode: "presentation" or "bnf_code"
+     * @returns {Promise<Array<Object>>} Array of normalized records matching the query
+     * 
+     * @example
+     * // With full URL
+     * await fetchDrugDataForResource("https://example.com/data_202501.csv", "Lorazepam", false, "presentation");
+     * 
+     * @example
+     * // With YYYY-MM and configured template
+     * window.NHSBSA_CSV_BASE_URL = "https://example.com/prescribing_{YYYYMM}.csv";
+     * await fetchDrugDataForResource("2025-01", "Lorazepam", false, "presentation");
+     * 
+     * @throws {Error} If window.NHSBSA_CSV_BASE_URL is not configured for YYYY-MM resourceIds
+     * @throws {Error} If CSV fetch fails or returns non-OK status
+     */
+    async function fetchDrugDataForResource(resourceId, queryText, exactMatch = true, mode = "presentation") {
+      // Handle demo mode
+      if (resourceId.startsWith("demo-")) {
+        return generateDemoData(resourceId, queryText, exactMatch, mode);
+      }
+
+      // Determine CSV URL
+      let csvUrl;
+      if (resourceId.startsWith("http://") || resourceId.startsWith("https://")) {
+        // Full URL provided
+        csvUrl = resourceId;
+      } else {
+        // Assume YYYY-MM format, build URL from template
+        if (!window.NHSBSA_CSV_BASE_URL) {
+          throw new Error(
+            "window.NHSBSA_CSV_BASE_URL is not configured. " +
+            "Please set it to a URL template with {YYYYMM} or {YYYY-MM} placeholder, " +
+            "e.g., 'https://example.host/prescribing_{YYYYMM}.csv'"
+          );
+        }
+
+        const template = window.NHSBSA_CSV_BASE_URL;
+        if (template.includes("{YYYYMM}")) {
+          const yyyymm = resourceId.replace("-", "");
+          csvUrl = template.replace("{YYYYMM}", yyyymm);
+        } else if (template.includes("{YYYY-MM}")) {
+          csvUrl = template.replace("{YYYY-MM}", resourceId);
+        } else {
+          throw new Error(
+            "window.NHSBSA_CSV_BASE_URL must include either {YYYYMM} or {YYYY-MM} placeholder. " +
+            `Current value: ${template}`
+          );
+        }
+      }
+
+      console.debug(`[fetchDrugDataForResource] Fetching CSV from: ${csvUrl}`);
+
+      // Fetch CSV
+      let response;
+      try {
+        response = await fetch(csvUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText} for ${csvUrl}`);
+        }
+      } catch (err) {
+        console.error(`[fetchDrugDataForResource] Fetch failed for ${csvUrl}:`, err);
+        throw new Error(`Failed to fetch CSV from ${csvUrl}: ${err.message}`);
+      }
+
+      const csvText = await response.text();
+      if (!csvText || csvText.trim().length === 0) {
+        console.warn(`[fetchDrugDataForResource] Empty CSV returned from ${csvUrl}`);
+        return [];
+      }
+
+      // Parse CSV
+      const rows = parseCSV(csvText);
+      if (rows.length === 0) {
+        console.warn(`[fetchDrugDataForResource] No rows in CSV from ${csvUrl}`);
+        return [];
+      }
+
+      const headers = rows[0];
+      const dataRows = rows.slice(1);
+
+      console.debug(`[fetchDrugDataForResource] Parsed ${dataRows.length} rows from CSV (headers: ${headers.join(", ")})`);
+
+      // Normalize and filter rows
+      const results = [];
+      const q = (queryText || "").toLowerCase();
+
+      for (const row of dataRows) {
+        const normalized = normalizeRow(row, headers);
+
+        // Filter by mode
+        let matches = false;
+        if (mode === "bnf_code") {
+          const code = (normalized.BNF_CODE || "").toLowerCase();
+          if (exactMatch) {
+            matches = code === q;
+          } else {
+            matches = code.includes(q);
+          }
+        } else {
+          // presentation mode
+          const presentation = (normalized.BNF_PRESENTATION_NAME || "").toLowerCase();
+          if (exactMatch) {
+            matches = presentation === q;
+          } else {
+            matches = presentation.includes(q);
+          }
+        }
+
+        if (matches) {
+          results.push(normalized);
+        }
+      }
+
+      console.debug(`[fetchDrugDataForResource] Filtered to ${results.length} matching rows`);
+      return results;
+    }
+
+    // --- Initialize months index ---
+    // For demo: populate last 18 months with demo- resourceIds
+    // For production: populate monthsIndex with real YYYY-MM strings or full CSV URLs
     function initMonthsDemo() {
       const now = new Date();
       const months = [];
       for (let i = 0; i < 18; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const ym = d.toISOString().slice(0,7); // YYYY-MM
-        months.push({ yearMonth: ym, resourceId: `demo-${ym.replace('-','')}` });
+        // Use demo- prefix for demo mode, or just YYYY-MM for real mode
+        // If window.NHSBSA_CSV_BASE_URL is configured, use YYYY-MM, else use demo-
+        const resourceId = window.NHSBSA_CSV_BASE_URL ? ym : `demo-${ym.replace('-','')}`;
+        months.push({ yearMonth: ym, resourceId });
       }
       monthsIndex = months.reverse(); // ascending
       const startSel = $("startMonth");
@@ -201,58 +501,6 @@
         startSel.value = monthsIndex[Math.max(0, monthsIndex.length - 6)].yearMonth;
         endSel.value = monthsIndex[monthsIndex.length - 1].yearMonth;
       }
-    }
-
-    // mock fetchDrugDataForResource: returns fake rows for the resource (month)
-    // Signature matches the real helper the site expects.
-    async function fetchDrugDataForResource(resourceId, queryText, exactMatch = true, mode = "presentation") {
-      // Simulate network delay
-      await sleep(120);
-      // Very small demo dataset generator
-      const ym = resourceId.includes('demo-') ? `${resourceId.slice(5,9)}-${resourceId.slice(9,11)}` : resourceId;
-      const baseNames = [
-        "Lorazepam 250microgram tablets",
-        "Lorazepam 500microgram tablets",
-        "Diazepam 2mg tablets",
-        "Drospirenone 3mg tablets" // added example
-      ];
-      // If user searched for BNF code mode we'll just pretend no data
-      const q = (queryText || "").toLowerCase();
-      const matches = baseNames.filter(n => {
-        if (exactMatch) return n.toLowerCase() === q;
-        return n.toLowerCase().includes(q);
-      });
-
-      // If nothing matches, return empty array
-      if (!matches.length) return [];
-
-      // Produce a handful of rows per matching presentation for demo
-      const practices = [
-        { code: "A10001", name: "Springfield Surgery" },
-        { code: "A10002", name: "Riverside Medical" },
-        { code: "A10003", name: "Hilltop Clinic" }
-      ];
-
-      const rows = [];
-      for (const p of practices) {
-        for (const name of matches) {
-          // small pseudo-random but stable-ish values derived from strings
-          const seed = (name.length + p.code.length + ym.length) % 10;
-          const items = 10 + seed * 7;
-          const qty = items * (1 + (seed % 3));
-          const net = Number((items * (1.25 + (seed * 0.12))).toFixed(2));
-          rows.push({
-            PRACTICE_CODE: p.code,
-            PRACTICE_NAME: p.name,
-            BNF_PRESENTATION_NAME: name,
-            ITEMS: items,
-            QTY: qty,
-            NET_COST: net,
-            YEAR_MONTH: ym
-          });
-        }
-      }
-      return rows;
     }
 
     // Recursive helper: find first array anywhere in the object (depth-first)
@@ -449,7 +697,8 @@
       }
 
       setFormEnabled(false);
-      setStatus("Querying (demo mode)…", { loading: true });
+      const isDemo = !window.NHSBSA_CSV_BASE_URL || selectedMonths[0].resourceId.startsWith("demo-");
+      setStatus(isDemo ? "Querying (demo mode)…" : "Querying NHSBSA CSV files…", { loading: true });
       $("resultsArea").classList.add("hidden");
       $("presentationChoice").classList.add("hidden");
 
@@ -530,10 +779,11 @@
     async function lookupBnf() {
       const q = $("drugQuery").value.trim();
       if (!q) { setStatus("Enter something to lookup.", { error: true }); return; }
-      setStatus("Looking up matching presentations (demo)…", { loading: true });
-      setFormEnabled(false);
       const latest = monthsIndex[monthsIndex.length - 1];
-      if (!latest) { setStatus("No monthly resources available to lookup.", { error: true }); setFormEnabled(true); return; }
+      if (!latest) { setStatus("No monthly resources available to lookup.", { error: true }); return; }
+      const isDemo = !window.NHSBSA_CSV_BASE_URL || latest.resourceId.startsWith("demo-");
+      setStatus(isDemo ? "Looking up matching presentations (demo)…" : "Looking up matching presentations…", { loading: true });
+      setFormEnabled(false);
 
       try {
         let res = await normalizedFetchDrugDataForResource(latest.resourceId, q, true, $("searchMode").value || "presentation");
