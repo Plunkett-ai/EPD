@@ -52,14 +52,13 @@
     .muted { color:#6b7280; font-size:0.9rem; }
     .button-row { display:flex; gap:0.6rem; align-items:center; margin-top:0.6rem; }
     .spacer { flex:1; }
-    .debug { font-family: var(--mono); font-size:0.85rem; color:#334155; margin-top:0.4rem; white-space:pre-wrap; background:#f8fafc; padding:0.5rem; border-radius:6px; border:1px solid #e6eef8; }
   </style>
 </head>
 <body>
   <header>
     <div class="header-inner">
       <h1 style="margin:0;font-size:1.25rem;">English Prescribing Dataset (EPD) — Explorer (demo)</h1>
-      <p style="margin:0.4rem 0 0;" class="muted">Demo copy — this page contains a local mock fetch implementation so it can run standalone. Replace the mock fetch with your NHSBSA/Open Data API call.</p>
+      <p style="margin:0.4rem 0 0;" class="muted">Demo copy — this page contains a local mock fetch implementation so it can run standalone. Replace the mock fetch with your NHSBSA/Open Data API cal[...]
     </div>
   </header>
 
@@ -130,8 +129,6 @@
         </div>
 
         <div id="tableContainer"></div>
-
-        <div id="debugArea" class="debug hidden" aria-hidden="true"></div>
       </section>
     </div>
   </main>
@@ -173,15 +170,15 @@
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    // --- Mock / demo implementations ---
-    // initMonths: populate last 18 months as demo
+    // --- Demo months init: populate last 18 months as demo (unchanged) ---
     function initMonthsDemo() {
       const now = new Date();
       const months = [];
       for (let i = 0; i < 18; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const ym = d.toISOString().slice(0,7); // YYYY-MM
-        months.push({ yearMonth: ym, resourceId: `demo-${ym.replace('-','')}` });
+        // resourceId: keep as YYYY-MM (fetch will build CSV URL from template)
+        months.push({ yearMonth: ym, resourceId: ym });
       }
       monthsIndex = months.reverse(); // ascending
       const startSel = $("startMonth");
@@ -203,119 +200,214 @@
       }
     }
 
-    // mock fetchDrugDataForResource: returns fake rows for the resource (month)
-    // Signature matches the real helper the site expects.
-    async function fetchDrugDataForResource(resourceId, queryText, exactMatch = true, mode = "presentation") {
-      // Simulate network delay
-      await sleep(120);
-      // Very small demo dataset generator
-      const ym = resourceId.includes('demo-') ? `${resourceId.slice(5,9)}-${resourceId.slice(9,11)}` : resourceId;
-      const baseNames = [
-        "Lorazepam 250microgram tablets",
-        "Lorazepam 500microgram tablets",
-        "Diazepam 2mg tablets",
-        "Drospirenone 3mg tablets" // added example
-      ];
-      // If user searched for BNF code mode we'll just pretend no data
-      const q = (queryText || "").toLowerCase();
-      const matches = baseNames.filter(n => {
-        if (exactMatch) return n.toLowerCase() === q;
-        return n.toLowerCase().includes(q);
-      });
-
-      // If nothing matches, return empty array
-      if (!matches.length) return [];
-
-      // Produce a handful of rows per matching presentation for demo
-      const practices = [
-        { code: "A10001", name: "Springfield Surgery" },
-        { code: "A10002", name: "Riverside Medical" },
-        { code: "A10003", name: "Hilltop Clinic" }
-      ];
-
+    // Utility: simple CSV parser that supports quoted fields and newlines inside quotes.
+    function parseCSV(text) {
+      if (!text) return [];
       const rows = [];
-      for (const p of practices) {
-        for (const name of matches) {
-          // small pseudo-random but stable-ish values derived from strings
-          const seed = (name.length + p.code.length + ym.length) % 10;
-          const items = 10 + seed * 7;
-          const qty = items * (1 + (seed % 3));
-          const net = Number((items * (1.25 + (seed * 0.12))).toFixed(2));
-          rows.push({
-            PRACTICE_CODE: p.code,
-            PRACTICE_NAME: p.name,
-            BNF_PRESENTATION_NAME: name,
-            ITEMS: items,
-            QTY: qty,
-            NET_COST: net,
-            YEAR_MONTH: ym
-          });
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        const next = text[i+1];
+        if (ch === '"') {
+          if (inQuotes && next === '"') {
+            cur += '"'; i++; // escaped quote
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (ch === '\n' && !inQuotes) {
+          rows.push(cur.replace(/\r$/, '')); cur = '';
+        } else {
+          cur += ch;
         }
       }
-      return rows;
-    }
+      if (cur.length) rows.push(cur.replace(/\r$/, ''));
+      if (!rows.length) return [];
 
-    // Recursive helper: find first array anywhere in the object (depth-first)
-    function findFirstArray(value, opts = {}) {
-      const { maxDepth = 10 } = opts;
-      const seen = new WeakSet();
-      function _find(v, path, depth) {
-        if (depth > maxDepth) return null;
-        if (Array.isArray(v)) return { array: v, path };
-        if (v && typeof v === 'object') {
-          if (seen.has(v)) return null;
-          seen.add(v);
-          // check own properties in insertion order
-          for (const key of Object.keys(v)) {
-            try {
-              const child = v[key];
-              const p = path ? `${path}.${key}` : key;
-              if (Array.isArray(child)) return { array: child, path: p };
-              if (child && typeof child === 'object') {
-                const res = _find(child, p, depth + 1);
-                if (res) return res;
-              }
-            } catch (e) {
-              // ignore property access errors
-            }
+      // split each row into fields (handles quoted fields)
+      const parsed = rows.map(line => {
+        const fields = [];
+        let cell = '';
+        let q = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          const next = line[i+1];
+          if (ch === '"') {
+            if (q && next === '"') { cell += '"'; i++; }
+            else q = !q;
+          } else if (ch === ',' && !q) {
+            fields.push(cell); cell = '';
+          } else {
+            cell += ch;
           }
         }
-        return null;
+        fields.push(cell);
+        return fields;
+      });
+
+      const headers = parsed[0].map(h => h.trim());
+      const objs = [];
+      for (let r = 1; r < parsed.length; r++) {
+        const arr = parsed[r];
+        // skip empty lines
+        if (arr.length === 1 && arr[0] === '') continue;
+        const obj = {};
+        for (let c = 0; c < headers.length; c++) {
+          obj[headers[c]] = arr[c] !== undefined ? arr[c] : '';
+        }
+        objs.push(obj);
       }
-      return _find(value, '', 0);
+      return objs;
     }
 
-    // Normalization wrapper (handles Array or {records, error}) with recursive extraction
+    // Helper: map a source row (from NHSBSA CSV) to the app's expected record shape
+    function normalizeRow(src, yearMonth) {
+      // Common column names from NHSBSA monthly prescribing CSVs vary; try multiple possibilities
+      const col = (names) => {
+        for (const n of names) {
+          if (n in src && src[n] !== undefined) return src[n];
+        }
+        return '';
+      };
+
+      const practiceCode = col(['PRACTICE', 'PRACTICE_CODE', 'practice', 'Practice', 'PracticeCode']);
+      const practiceName = col(['PRACTICE_NAME','NAME','PracticeName','PRACTICE_NAME ']);
+      const bnfPresentation = col(['BNF_PRESENTATION','BNF_PRESENTATION_NAME','BNF_DESCRIPTION','Presentation','Presentation_Name']);
+      const bnfCode = col(['BNF_CODE','bnf_code','BNF_CODE ']);
+      const items = col(['ITEMS','Items','Total Items','TotalItems','items']) || '0';
+      const qty = col(['QUANTITY','QUANT','QTY','Quantity','Total Quantity','TotalQuantity']) || '0';
+      const net = col(['NET_COST','NET_COST (£)','NetCost','NET_COST_','Net_Cost']) || '0';
+
+      return {
+        PRACTICE_CODE: String(practiceCode).trim(),
+        PRACTICE_NAME: String(practiceName || '').trim(),
+        BNF_PRESENTATION_NAME: String(bnfPresentation || '').trim(),
+        BNF_CODE: String(bnfCode || '').trim(),
+        ITEMS: Number(String(items).replace(/[^0-9\.-]/g, '')) || 0,
+        QTY: Number(String(qty).replace(/[^0-9\.-]/g, '')) || 0,
+        NET_COST: Number(String(net).replace(/[^0-9\.-]/g, '')) || 0,
+        YEAR_MONTH: yearMonth
+      };
+    }
+
+    // --- Real fetch: fetch CSV from NHSBSA monthly file or a direct CSV URL ---
+    // Configuration: set a template URL here (or set window.NHSBSA_CSV_BASE_URL externally)
+    // The template must include either {YYYYMM} (e.g. 202407) or {YYYY-MM} (e.g. 2024-07)
+    // Example (you must set this to your real NHSBSA CSV pattern):
+    // window.NHSBSA_CSV_BASE_URL = "https://example.bucket.host/prescribing_{YYYYMM}.csv";
+    // Or provide monthsIndex entries that are full http(s) URLs and those will be fetched directly.
+    window.NHSBSA_CSV_BASE_URL = window.NHSBSA_CSV_BASE_URL || ""; // <-- configure this!
+
+    async function fetchDrugDataForResource(resourceId, queryText, exactMatch = true, mode = "presentation") {
+      // If resourceId begins with "demo-" keep demo behaviour (so the demo still works)
+      if (typeof resourceId === 'string' && resourceId.startsWith('demo-')) {
+        // fallback to previous demo implementation (small synthetic dataset)
+        // reuse the previous simple generator for demo resources
+        await sleep(120);
+        const ym = resourceId.includes('demo-') ? `${resourceId.slice(5,9)}-${resourceId.slice(9,11)}` : resourceId;
+        const baseNames = [
+          "Lorazepam 250microgram tablets",
+          "Lorazepam 500microgram tablets",
+          "Diazepam 2mg tablets"
+        ];
+        const q = (queryText || "").toLowerCase();
+        const matches = baseNames.filter(n => {
+          if (exactMatch) return n.toLowerCase() === q;
+          return n.toLowerCase().includes(q);
+        });
+        if (!matches.length) return [];
+        const practices = [
+          { code: "A10001", name: "Springfield Surgery" },
+          { code: "A10002", name: "Riverside Medical" },
+          { code: "A10003", name: "Hilltop Clinic" }
+        ];
+        const rows = [];
+        for (const p of practices) {
+          for (const name of matches) {
+            const seed = (name.length + p.code.length + ym.length) % 10;
+            const items = 10 + seed * 7;
+            const qty = items * (1 + (seed % 3));
+            const net = Number((items * (1.25 + (seed * 0.12))).toFixed(2));
+            rows.push({
+              PRACTICE_CODE: p.code,
+              PRACTICE_NAME: p.name,
+              BNF_PRESENTATION_NAME: name,
+              ITEMS: items,
+              QTY: qty,
+              NET_COST: net,
+              YEAR_MONTH: ym
+            });
+          }
+        }
+        return rows;
+      }
+
+      // Build CSV URL
+      let csvUrl = null;
+      if (/^https?:\/\//i.test(resourceId)) {
+        csvUrl = resourceId;
+      } else {
+        // expect resourceId to be a year-month "YYYY-MM" (as produced by initMonthsDemo)
+        const ym = String(resourceId);
+        const yyyymm = ym.replace('-', '');
+        const template = window.NHSBSA_CSV_BASE_URL || "";
+        if (!template) {
+          throw new Error('NHSBSA CSV base URL is not configured. Set window.NHSBSA_CSV_BASE_URL to a template containing {YYYYMM} or {YYYY-MM}.');
+        }
+        if (template.includes('{YYYYMM}')) csvUrl = template.replace(/\{YYYYMM\}/g, yyyymm);
+        else csvUrl = template.replace(/\{YYYY-MM\}/g, ym);
+      }
+
+      // Fetch CSV
+      let resp;
+      try {
+        resp = await fetch(csvUrl);
+      } catch (err) {
+        throw new Error(`Network error fetching CSV ${csvUrl}: ${err && err.message ? err.message : String(err)}`);
+      }
+      if (!resp.ok) {
+        throw new Error(`Failed to fetch CSV ${csvUrl}: HTTP ${resp.status}`);
+      }
+      const text = await resp.text();
+      const parsed = parseCSV(text); // array of objects (header->value)
+      const yearMonth = (resourceId && String(resourceId).includes('-')) ? String(resourceId) : (resourceId || '');
+
+      // Normalize rows
+      const normalized = parsed.map(r => normalizeRow(r, yearMonth));
+
+      // Filtering: by BNF presentation or by BNF code
+      const q = (queryText || '').trim();
+      if (!q) return [];
+
+      let filtered = [];
+      if (mode === 'bnf_code') {
+        const qUp = q.toUpperCase();
+        filtered = normalized.filter(r => {
+          const code = (r.BNF_CODE || '').toUpperCase();
+          if (exactMatch) return code === qUp;
+          return code.includes(qUp) || (r.BNF_PRESENTATION_NAME || '').toLowerCase().includes(q.toLowerCase());
+        });
+      } else {
+        const qLower = q.toLowerCase();
+        filtered = normalized.filter(r => {
+          const name = (r.BNF_PRESENTATION_NAME || '').toLowerCase();
+          if (exactMatch) return name === qLower;
+          return name.includes(qLower);
+        });
+      }
+
+      return filtered;
+    }
+
+    // Normalization wrapper (handles Array or {records, error})
     async function normalizedFetchDrugDataForResource(resourceId, queryText, exactMatch, mode = "presentation") {
       try {
         const res = await fetchDrugDataForResource(resourceId, queryText, exactMatch, mode);
-        // DEBUG: log the raw response so users can see the shape
-        console.debug("[normalizedFetch] resource:", resourceId, "query:", queryText, "exact:", exactMatch, "mode:", mode, "rawResponse:", res);
-
-        // If the response is already an array, return quickly.
-        if (Array.isArray(res)) {
-          return { records: res, error: null, _raw: res, inferredFrom: '(root array)' };
-        }
-
-        // Common well-known array props
-        if (res && Array.isArray(res.records)) return { records: res.records, error: res.error || null, _raw: res, inferredFrom: 'records' };
-        if (res && Array.isArray(res.data)) return { records: res.data, error: res.error || null, _raw: res, inferredFrom: 'data' };
-        if (res && Array.isArray(res.results)) return { records: res.results, error: res.error || null, _raw: res, inferredFrom: 'results' };
-        if (res && Array.isArray(res.items)) return { records: res.items, error: res.error || null, _raw: res, inferredFrom: 'items' };
-
-        // If it's an object, try to find the first nested array anywhere
-        if (res && typeof res === 'object') {
-          const found = findFirstArray(res, { maxDepth: 12 });
-          if (found && found.array) {
-            console.debug("[normalizedFetch] inferred array at path:", found.path);
-            return { records: found.array, error: res.error || null, _raw: res, inferredFrom: found.path || '(inferred)' };
-          }
-        }
-
-        // Nothing found
-        return { records: [], error: (res && res.error) || null, _raw: res, inferredFrom: null };
+        if (Array.isArray(res)) return { records: res, error: null };
+        if (res && Array.isArray(res.records)) return { records: res.records, error: res.error || null };
+        if (res && Array.isArray(res.data)) return { records: res.data, error: res.error || null };
+        return { records: [], error: (res && res.error) || null };
       } catch (err) {
-        console.error("[normalizedFetch] exception for", resourceId, err);
         return { records: [], error: err && err.message ? err.message : String(err) };
       }
     }
@@ -352,7 +444,7 @@
         return;
       }
       let html = `<div class="help-text summary-line"><strong>Showing ${rows.length} aggregated rows</strong></div>`;
-      html += `<table aria-describedby="resultsTitle"><thead><tr><th>Practice</th><th>Month</th><th style="text-align:right">Items</th><th style="text-align:right">Qty</th><th style="text-align:right">Net cost</th></tr></thead><tbody>`;
+      html += `<table aria-describedby="resultsTitle"><thead><tr><th>Practice</th><th>Month</th><th style="text-align:right">Items</th><th style="text-align:right">Qty</th><th style="text-align:right">Cost</th></tr></thead><tbody>`;
       for (const r of rows) {
         html += `<tr>
           <td>${escapeHtml(r.PRACTICE_NAME)} <small class="muted">(${escapeHtml(r.PRACTICE_CODE)})</small></td>
@@ -449,11 +541,9 @@
       }
 
       setFormEnabled(false);
-      setStatus("Querying (demo mode)…", { loading: true });
+      setStatus("Querying (NHSBSA CSV mode)…", { loading: true });
       $("resultsArea").classList.add("hidden");
       $("presentationChoice").classList.add("hidden");
-
-      // summary header
       $("summaryArea").innerHTML =
         `<p class="summary-line"><strong>BNF query:</strong> <code style="font-family:${getComputedStyle(document.documentElement).getPropertyValue("--mono")}; font-size:0.9rem;">${escapeHtml(drugQuery)}</code></p>
          <p class="summary-line"><strong>Months:</strong> ${escapeHtml(startMonth)} → ${escapeHtml(endMonth)} (${selectedMonths.length} month${selectedMonths.length > 1 ? "s" : ""})</p>`;
@@ -462,23 +552,12 @@
       aggregated = [];
       $("downloadCsvButton").disabled = true;
       const errors = [];
-      const fetchReport = []; // debug: { month, resource, count, error, inferredFrom }
 
       try {
         for (const m of selectedMonths) {
           setStatus(`Fetching ${m.yearMonth}…`, { loading: true });
           try {
             const result = await normalizedFetchDrugDataForResource(m.resourceId, drugQuery, exactMatch, mode);
-            // record debug info
-            fetchReport.push({
-              month: m.yearMonth,
-              resource: m.resourceId,
-              count: (result.records || []).length,
-              error: result.error || null,
-              inferredFrom: result.inferredFrom || null,
-              _raw: result._raw
-            });
-
             if (result.error) errors.push({ month: m.yearMonth, resource: m.resourceId, error: result.error });
             if (result.records && result.records.length) {
               rawRecords.push(...result.records);
@@ -486,22 +565,11 @@
           } catch (err) {
             const msg = err && err.message ? err.message : String(err);
             errors.push({ month: m.yearMonth, resource: m.resourceId, error: msg });
-            fetchReport.push({ month: m.yearMonth, resource: m.resourceId, count: 0, error: msg });
             console.error(`Request failed for ${m.resourceId}:`, msg);
           }
           // throttle a little
           await sleep(80);
         }
-
-        // show debug summary of fetches in the UI for quick inspection
-        const dbg = fetchReport.map(fr => {
-          const errText = fr.error ? ` ERROR: ${fr.error}` : "";
-          const inferred = fr.inferredFrom ? ` (inferred:${fr.inferredFrom})` : "";
-          return `${fr.month}: ${fr.count} rows${inferred}${errText}`;
-        }).join('\n');
-        $("debugArea").textContent = dbg;
-        $("debugArea").classList.remove("hidden");
-        console.debug("[runQuery] per-month fetch report:", fetchReport);
 
         if (!rawRecords.length) {
           setStatus("No rows found for that query in the selected months.", { error: true });
@@ -530,23 +598,16 @@
     async function lookupBnf() {
       const q = $("drugQuery").value.trim();
       if (!q) { setStatus("Enter something to lookup.", { error: true }); return; }
-      setStatus("Looking up matching presentations (demo)…", { loading: true });
+      setStatus("Looking up matching presentations (NHSBSA CSV mode)…", { loading: true });
       setFormEnabled(false);
       const latest = monthsIndex[monthsIndex.length - 1];
       if (!latest) { setStatus("No monthly resources available to lookup.", { error: true }); setFormEnabled(true); return; }
 
       try {
         let res = await normalizedFetchDrugDataForResource(latest.resourceId, q, true, $("searchMode").value || "presentation");
-        // if exact match returned nothing try contains
         if ((!res.records || !res.records.length) && !res.error) {
           res = await normalizedFetchDrugDataForResource(latest.resourceId, q, false, $("searchMode").value || "presentation");
         }
-
-        // DEBUG: show raw lookup response in console and UI debug area
-        console.debug("[lookupBnf] raw lookup result:", res);
-        $("debugArea").textContent = `lookup(${latest.yearMonth}): ${ (res && res.records) ? (res.records.length + " rows") : "0 rows" }` + (res && res.inferredFrom ? `, inferred from: ${res.inferredFrom}` : "");
-        $("debugArea").classList.remove("hidden");
-
         if (res.error) {
           setStatus(`Lookup failed: ${res.error}`, { error: true });
           console.warn("Lookup error:", res.error);
@@ -566,8 +627,6 @@
           const opt = document.createElement("option"); opt.value = names[0]; opt.textContent = names[0];
           presentationSelect.appendChild(opt);
           $("presentationChoice").classList.add("hidden");
-          // set the query to the single found presentation so user can run immediately
-          $("drugQuery").value = names[0];
         } else {
           $("presentationChoice").classList.add("hidden");
           setStatus("No matching presentations found.", { error: true });
