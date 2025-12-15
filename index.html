@@ -395,7 +395,7 @@
         }
         
         // Replace {YYYY-MM} or {YYYYMM} in template
-        const yyyymm = resourceId.replace('-', '');
+        const yyyymm = resourceId.replace(/-/g, '');
         csvUrl = window.NHSBSA_CSV_BASE_URL
           .replace('{YYYY-MM}', resourceId)
           .replace('{YYYYMM}', yyyymm);
