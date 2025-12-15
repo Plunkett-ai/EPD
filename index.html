@@ -58,7 +58,7 @@
   <header>
     <div class="header-inner">
       <h1 style="margin:0;font-size:1.25rem;">English Prescribing Dataset (EPD) — Explorer (demo)</h1>
-      <p style="margin:0.4rem 0 0;" class="muted">Demo copy — this page contains a local mock fetch implementation so it can run standalone. Replace the mock fetch with your NHSBSA/Open Data API calls to use real data.</p>
+      <p style="margin:0.4rem 0 0;" class="muted">Demo copy — this page contains a local mock fetch implementation so it can run standalone. Replace the mock fetch with your NHSBSA/Open Data API cal[...]
     </div>
   </header>
 
@@ -396,6 +396,8 @@
       setStatus("Querying (demo mode)…", { loading: true });
       $("resultsArea").classList.add("hidden");
       $("presentationChoice").classList.add("hidden");
+
+      // fixed: use the correct variable name drugQuery and ensure the template is valid
       $("summaryArea").innerHTML =
         `<p class="summary-line"><strong>BNF query:</strong> <code style="font-family:${getComputedStyle(document.documentElement).getPropertyValue("--mono")}; font-size:0.9rem;">${escapeHtml(drugQuery)}</code></p>
          <p class="summary-line"><strong>Months:</strong> ${escapeHtml(startMonth)} → ${escapeHtml(endMonth)} (${selectedMonths.length} month${selectedMonths.length > 1 ? "s" : ""})</p>`;
