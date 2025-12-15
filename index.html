@@ -255,27 +255,65 @@
       return rows;
     }
 
-    // Normalization wrapper (handles Array or {records, error})
+    // Recursive helper: find first array anywhere in the object (depth-first)
+    function findFirstArray(value, opts = {}) {
+      const { maxDepth = 10 } = opts;
+      const seen = new WeakSet();
+      function _find(v, path, depth) {
+        if (depth > maxDepth) return null;
+        if (Array.isArray(v)) return { array: v, path };
+        if (v && typeof v === 'object') {
+          if (seen.has(v)) return null;
+          seen.add(v);
+          // check own properties in insertion order
+          for (const key of Object.keys(v)) {
+            try {
+              const child = v[key];
+              const p = path ? `${path}.${key}` : key;
+              if (Array.isArray(child)) return { array: child, path: p };
+              if (child && typeof child === 'object') {
+                const res = _find(child, p, depth + 1);
+                if (res) return res;
+              }
+            } catch (e) {
+              // ignore property access errors
+            }
+          }
+        }
+        return null;
+      }
+      return _find(value, '', 0);
+    }
+
+    // Normalization wrapper (handles Array or {records, error}) with recursive extraction
     async function normalizedFetchDrugDataForResource(resourceId, queryText, exactMatch, mode = "presentation") {
       try {
         const res = await fetchDrugDataForResource(resourceId, queryText, exactMatch, mode);
         // DEBUG: log the raw response so users can see the shape
         console.debug("[normalizedFetch] resource:", resourceId, "query:", queryText, "exact:", exactMatch, "mode:", mode, "rawResponse:", res);
 
+        // If the response is already an array, return quickly.
         if (Array.isArray(res)) {
-          return { records: res, error: null, _raw: res };
+          return { records: res, error: null, _raw: res, inferredFrom: '(root array)' };
         }
-        // common shapes
-        if (res && Array.isArray(res.records)) return { records: res.records, error: res.error || null, _raw: res };
-        if (res && Array.isArray(res.data)) return { records: res.data, error: res.error || null, _raw: res };
-        if (res && Array.isArray(res.results)) return { records: res.results, error: res.error || null, _raw: res };
-        if (res && Array.isArray(res.items)) return { records: res.items, error: res.error || null, _raw: res };
-        // If it's an object with a single array property, try to find it
-        if (res && typeof res === "object") {
-          const arrProp = Object.keys(res).find(k => Array.isArray(res[k]));
-          if (arrProp) return { records: res[arrProp], error: res.error || null, _raw: res, inferredFrom: arrProp };
+
+        // Common well-known array props
+        if (res && Array.isArray(res.records)) return { records: res.records, error: res.error || null, _raw: res, inferredFrom: 'records' };
+        if (res && Array.isArray(res.data)) return { records: res.data, error: res.error || null, _raw: res, inferredFrom: 'data' };
+        if (res && Array.isArray(res.results)) return { records: res.results, error: res.error || null, _raw: res, inferredFrom: 'results' };
+        if (res && Array.isArray(res.items)) return { records: res.items, error: res.error || null, _raw: res, inferredFrom: 'items' };
+
+        // If it's an object, try to find the first nested array anywhere
+        if (res && typeof res === 'object') {
+          const found = findFirstArray(res, { maxDepth: 12 });
+          if (found && found.array) {
+            console.debug("[normalizedFetch] inferred array at path:", found.path);
+            return { records: found.array, error: res.error || null, _raw: res, inferredFrom: found.path || '(inferred)' };
+          }
         }
-        return { records: [], error: (res && res.error) || null, _raw: res };
+
+        // Nothing found
+        return { records: [], error: (res && res.error) || null, _raw: res, inferredFrom: null };
       } catch (err) {
         console.error("[normalizedFetch] exception for", resourceId, err);
         return { records: [], error: err && err.message ? err.message : String(err) };
