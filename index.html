@@ -177,8 +177,15 @@
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    // --- CSV Parser ---
-    // Simple CSV parser that handles quoted fields with embedded commas, quotes, and newlines
+    /**
+     * CSV Parser - Parses CSV text with support for quoted fields
+     * Handles:
+     * - Quoted fields with embedded commas
+     * - Escaped quotes (double quotes "")
+     * - Embedded newlines within quoted fields
+     * @param {string} csvText - The CSV text to parse
+     * @returns {Array<Array<string>>} Array of rows, each row is an array of field values
+     */
     function parseCSV(csvText) {
       const rows = [];
       let currentRow = [];
@@ -244,8 +251,14 @@
       return rows;
     }
 
-    // --- Column Normalization ---
-    // Maps NHSBSA CSV columns to expected record shape
+    /**
+     * Column Normalization - Maps NHSBSA CSV columns to expected record shape
+     * Tries multiple common header name variations for each field to maximize compatibility.
+     * @param {Array<string>} row - Array of field values for a single row
+     * @param {Array<string>} headers - Array of column header names
+     * @returns {Object} Normalized record with standardized field names:
+     *   { PRACTICE_CODE, PRACTICE_NAME, BNF_PRESENTATION_NAME, BNF_CODE, ITEMS, QTY, NET_COST, YEAR_MONTH }
+     */
     function normalizeRow(row, headers) {
       const getCol = (names) => {
         for (const name of names) {
@@ -267,7 +280,15 @@
       };
     }
 
-    // --- Demo data generator (preserved for demo- resourceIds) ---
+    /**
+     * Demo data generator - Generates fake prescribing data for demo/testing purposes
+     * Preserved for resourceIds starting with "demo-" so local demo still works.
+     * @param {string} resourceId - Demo resource ID (e.g., "demo-202501")
+     * @param {string} queryText - Search query text
+     * @param {boolean} exactMatch - Whether to use exact or partial matching
+     * @param {string} mode - Search mode: "presentation" or "bnf_code"
+     * @returns {Promise<Array<Object>>} Array of normalized records
+     */
     async function generateDemoData(resourceId, queryText, exactMatch, mode) {
       await sleep(120);
       const ym = resourceId.includes('demo-') ? `${resourceId.slice(5,9)}-${resourceId.slice(9,11)}` : resourceId;
@@ -321,7 +342,31 @@
       return rows;
     }
 
-    // --- Real NHSBSA CSV fetch implementation ---
+    /**
+     * Real NHSBSA CSV fetch and parser implementation
+     * Fetches prescribing data from NHSBSA monthly CSV files and filters by BNF presentation or code.
+     * 
+     * @param {string} resourceId - Can be:
+     *   - "demo-YYYYMM" for demo mode
+     *   - Full CSV URL (starting with http:// or https://)
+     *   - Year-month string (YYYY-MM) to be combined with window.NHSBSA_CSV_BASE_URL template
+     * @param {string} queryText - The BNF presentation name or BNF code to search for
+     * @param {boolean} [exactMatch=true] - Whether to use exact match (true) or partial match (false)
+     * @param {string} [mode="presentation"] - Search mode: "presentation" or "bnf_code"
+     * @returns {Promise<Array<Object>>} Array of normalized records matching the query
+     * 
+     * @example
+     * // With full URL
+     * await fetchDrugDataForResource("https://example.com/data_202501.csv", "Lorazepam", false, "presentation");
+     * 
+     * @example
+     * // With YYYY-MM and configured template
+     * window.NHSBSA_CSV_BASE_URL = "https://example.com/prescribing_{YYYYMM}.csv";
+     * await fetchDrugDataForResource("2025-01", "Lorazepam", false, "presentation");
+     * 
+     * @throws {Error} If window.NHSBSA_CSV_BASE_URL is not configured for YYYY-MM resourceIds
+     * @throws {Error} If CSV fetch fails or returns non-OK status
+     */
     async function fetchDrugDataForResource(resourceId, queryText, exactMatch = true, mode = "presentation") {
       // Handle demo mode
       if (resourceId.startsWith("demo-")) {
