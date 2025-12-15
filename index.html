@@ -409,18 +409,11 @@
       // First row is header
       const headers = csvRows[0];
       const records = [];
-      
-      // Create column index map (case-insensitive)
-      const colMap = {};
-      headers.forEach((h, i) => {
-        const key = h.trim().toUpperCase().replace(/\s+/g, '_');
-        colMap[key] = i;
-      });
 
       // Parse data rows
       for (let i = 1; i < csvRows.length; i++) {
         const row = csvRows[i];
-        if (row.length < headers.length) continue; // skip incomplete rows
+        if (row.length === 0 || row.every(f => !f)) continue; // skip empty rows
         
         // Build source object
         const src = {};
