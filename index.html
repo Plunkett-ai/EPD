@@ -52,13 +52,14 @@
     .muted { color:#6b7280; font-size:0.9rem; }
     .button-row { display:flex; gap:0.6rem; align-items:center; margin-top:0.6rem; }
     .spacer { flex:1; }
+    .debug { font-family: var(--mono); font-size:0.85rem; color:#334155; margin-top:0.4rem; white-space:pre-wrap; background:#f8fafc; padding:0.5rem; border-radius:6px; border:1px solid #e6eef8; }
   </style>
 </head>
 <body>
   <header>
     <div class="header-inner">
       <h1 style="margin:0;font-size:1.25rem;">English Prescribing Dataset (EPD) — Explorer (demo)</h1>
-      <p style="margin:0.4rem 0 0;" class="muted">Demo copy — this page contains a local mock fetch implementation so it can run standalone. Replace the mock fetch with your NHSBSA/Open Data API cal[...]
+      <p style="margin:0.4rem 0 0;" class="muted">Demo copy — this page contains a local mock fetch implementation so it can run standalone. Replace the mock fetch with your NHSBSA/Open Data API call.</p>
     </div>
   </header>
 
@@ -129,6 +130,8 @@
         </div>
 
         <div id="tableContainer"></div>
+
+        <div id="debugArea" class="debug hidden" aria-hidden="true"></div>
       </section>
     </div>
   </main>
@@ -210,7 +213,8 @@
       const baseNames = [
         "Lorazepam 250microgram tablets",
         "Lorazepam 500microgram tablets",
-        "Diazepam 2mg tablets"
+        "Diazepam 2mg tablets",
+        "Drospirenone 3mg tablets" // added example
       ];
       // If user searched for BNF code mode we'll just pretend no data
       const q = (queryText || "").toLowerCase();
@@ -255,11 +259,25 @@
     async function normalizedFetchDrugDataForResource(resourceId, queryText, exactMatch, mode = "presentation") {
       try {
         const res = await fetchDrugDataForResource(resourceId, queryText, exactMatch, mode);
-        if (Array.isArray(res)) return { records: res, error: null };
-        if (res && Array.isArray(res.records)) return { records: res.records, error: res.error || null };
-        if (res && Array.isArray(res.data)) return { records: res.data, error: res.error || null };
-        return { records: [], error: (res && res.error) || null };
+        // DEBUG: log the raw response so users can see the shape
+        console.debug("[normalizedFetch] resource:", resourceId, "query:", queryText, "exact:", exactMatch, "mode:", mode, "rawResponse:", res);
+
+        if (Array.isArray(res)) {
+          return { records: res, error: null, _raw: res };
+        }
+        // common shapes
+        if (res && Array.isArray(res.records)) return { records: res.records, error: res.error || null, _raw: res };
+        if (res && Array.isArray(res.data)) return { records: res.data, error: res.error || null, _raw: res };
+        if (res && Array.isArray(res.results)) return { records: res.results, error: res.error || null, _raw: res };
+        if (res && Array.isArray(res.items)) return { records: res.items, error: res.error || null, _raw: res };
+        // If it's an object with a single array property, try to find it
+        if (res && typeof res === "object") {
+          const arrProp = Object.keys(res).find(k => Array.isArray(res[k]));
+          if (arrProp) return { records: res[arrProp], error: res.error || null, _raw: res, inferredFrom: arrProp };
+        }
+        return { records: [], error: (res && res.error) || null, _raw: res };
       } catch (err) {
+        console.error("[normalizedFetch] exception for", resourceId, err);
         return { records: [], error: err && err.message ? err.message : String(err) };
       }
     }
@@ -397,7 +415,7 @@
       $("resultsArea").classList.add("hidden");
       $("presentationChoice").classList.add("hidden");
 
-      // fixed: use the correct variable name drugQuery and ensure the template is valid
+      // summary header
       $("summaryArea").innerHTML =
         `<p class="summary-line"><strong>BNF query:</strong> <code style="font-family:${getComputedStyle(document.documentElement).getPropertyValue("--mono")}; font-size:0.9rem;">${escapeHtml(drugQuery)}</code></p>
          <p class="summary-line"><strong>Months:</strong> ${escapeHtml(startMonth)} → ${escapeHtml(endMonth)} (${selectedMonths.length} month${selectedMonths.length > 1 ? "s" : ""})</p>`;
@@ -406,12 +424,23 @@
       aggregated = [];
       $("downloadCsvButton").disabled = true;
       const errors = [];
+      const fetchReport = []; // debug: { month, resource, count, error, inferredFrom }
 
       try {
         for (const m of selectedMonths) {
           setStatus(`Fetching ${m.yearMonth}…`, { loading: true });
           try {
             const result = await normalizedFetchDrugDataForResource(m.resourceId, drugQuery, exactMatch, mode);
+            // record debug info
+            fetchReport.push({
+              month: m.yearMonth,
+              resource: m.resourceId,
+              count: (result.records || []).length,
+              error: result.error || null,
+              inferredFrom: result.inferredFrom || null,
+              _raw: result._raw
+            });
+
             if (result.error) errors.push({ month: m.yearMonth, resource: m.resourceId, error: result.error });
             if (result.records && result.records.length) {
               rawRecords.push(...result.records);
@@ -419,11 +448,22 @@
           } catch (err) {
             const msg = err && err.message ? err.message : String(err);
             errors.push({ month: m.yearMonth, resource: m.resourceId, error: msg });
+            fetchReport.push({ month: m.yearMonth, resource: m.resourceId, count: 0, error: msg });
             console.error(`Request failed for ${m.resourceId}:`, msg);
           }
           // throttle a little
           await sleep(80);
         }
+
+        // show debug summary of fetches in the UI for quick inspection
+        const dbg = fetchReport.map(fr => {
+          const errText = fr.error ? ` ERROR: ${fr.error}` : "";
+          const inferred = fr.inferredFrom ? ` (inferred:${fr.inferredFrom})` : "";
+          return `${fr.month}: ${fr.count} rows${inferred}${errText}`;
+        }).join('\n');
+        $("debugArea").textContent = dbg;
+        $("debugArea").classList.remove("hidden");
+        console.debug("[runQuery] per-month fetch report:", fetchReport);
 
         if (!rawRecords.length) {
           setStatus("No rows found for that query in the selected months.", { error: true });
@@ -459,9 +499,16 @@
 
       try {
         let res = await normalizedFetchDrugDataForResource(latest.resourceId, q, true, $("searchMode").value || "presentation");
+        // if exact match returned nothing try contains
         if ((!res.records || !res.records.length) && !res.error) {
           res = await normalizedFetchDrugDataForResource(latest.resourceId, q, false, $("searchMode").value || "presentation");
         }
+
+        // DEBUG: show raw lookup response in console and UI debug area
+        console.debug("[lookupBnf] raw lookup result:", res);
+        $("debugArea").textContent = `lookup(${latest.yearMonth}): ${ (res && res.records) ? (res.records.length + " rows") : "0 rows" }` + (res && res.inferredFrom ? `, inferred from: ${res.inferredFrom}` : "");
+        $("debugArea").classList.remove("hidden");
+
         if (res.error) {
           setStatus(`Lookup failed: ${res.error}`, { error: true });
           console.warn("Lookup error:", res.error);
@@ -481,6 +528,8 @@
           const opt = document.createElement("option"); opt.value = names[0]; opt.textContent = names[0];
           presentationSelect.appendChild(opt);
           $("presentationChoice").classList.add("hidden");
+          // set the query to the single found presentation so user can run immediately
+          $("drugQuery").value = names[0];
         } else {
           $("presentationChoice").classList.add("hidden");
           setStatus("No matching presentations found.", { error: true });
